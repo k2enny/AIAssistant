@@ -29,7 +29,6 @@ export class Orchestrator {
   private llmClient: OpenRouterClient | null = null;
   private auditLogger: AuditLogger;
   private workflows: Map<string, Workflow> = new Map();
-  private systemPrompt: string;
 
   constructor(
     eventBus: EventBusInterface,
@@ -45,10 +44,34 @@ export class Orchestrator {
     this.memoryManager = memoryManager;
     this.policyEngine = policyEngine;
     this.auditLogger = auditLogger;
-    this.systemPrompt = `You are AIAssistant, a helpful AI operator that can plan and execute tasks using available tools.
+  }
+
+  /**
+   * Build the system prompt dynamically, including the current list of
+   * registered tools so the LLM knows exactly what it can use.
+   */
+  buildSystemPrompt(): string {
+    const tools = this.toolRegistry.getSchemas();
+    const toolDescriptions = tools
+      .map(t => {
+        if (t.parameters.length === 0) {
+          return `  - ${t.name}: ${t.description}`;
+        }
+        const params = t.parameters
+          .map(p => `${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`)
+          .join('; ');
+        return `  - ${t.name}: ${t.description} [params: ${params}]`;
+      })
+      .join('\n');
+
+    const toolSection = tools.length > 0
+      ? `\n\nYou have access to the following tools:\n${toolDescriptions}\n\nUse these tools when appropriate to accomplish tasks.`
+      : '\n\nNo tools are currently available.';
+
+    return `You are AIAssistant, a helpful AI operator that can plan and execute tasks using available tools.
 You should think step by step, use tools when needed, and always respect the user's instructions.
 When using tools, describe what you're doing and why.
-If a tool call is blocked by policy, explain to the user what happened.`;
+If a tool call is blocked by policy, explain to the user what happened.${toolSection}`;
   }
 
   setLLMClient(client: OpenRouterClient): void {
@@ -113,7 +136,7 @@ If a tool call is blocked by policy, explain to the user what happened.`;
     const tools = this.toolRegistry.getSchemas();
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: this.buildSystemPrompt() },
     ];
 
     // Add context messages

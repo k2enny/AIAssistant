@@ -141,6 +141,28 @@ Evaluates rules before every tool execution. Supports:
 - Target matching: commands, domains, users, patterns
 - Default rules: confirm downloads, restrict shell access, etc.
 
+### Tools vs Skills (Plugins)
+
+In AIAssistant, **tools** and **skills** are related but distinct concepts:
+
+- **Tool**: An atomic, executable capability with a defined schema (name, description, parameters). Tools are what the AI agent directly invokes to perform actions. Examples: `shell_exec`, `datetime`, `web_browse`. Each tool implements the `Tool` interface (`execute`, `validate`, `schema`).
+
+- **Skill (Plugin)**: A distributable package that bundles one or more tools along with lifecycle management. Skills are loaded/unloaded at runtime via the plugin system. A skill registers its tools into the Tool Registry on initialization.
+
+```
+Skill (Plugin)              Tool
+┌─────────────────┐        ┌──────────────────────────┐
+│ plugin.json     │        │ schema (name, params...) │
+│ initialize()    │───────▶│ validate(params)         │
+│ shutdown()      │ registers │ execute(params, context)  │
+│ getTools()      │        └──────────────────────────┘
+└─────────────────┘
+```
+
+The AI is made aware of all registered tools in two ways:
+1. **Function calling**: Tool schemas are converted to the LLM function-calling format and passed with every request
+2. **System prompt**: The orchestrator dynamically builds the system prompt to include descriptions of all currently registered tools
+
 ### Plugin System (`src/plugins/`)
 - **Loader** (`loader.ts`): Discover, load, unload, reload plugins at runtime
 - **SDK** (`sdk.ts`): Generate new plugin scaffolding
@@ -151,8 +173,7 @@ Evaluates rules before every tool execution. Supports:
 Manages tool registration with schemas for LLM function calling. Built-in tools:
 - `shell_exec`: Sandboxed shell command execution (with policy approval)
 - `datetime`: Date/time operations (current time, parse, format, diff)
-
-> **Note:** Web browsing is not currently available as a built-in skill. Playwright-based web automation is planned for Phase 2. Custom web-related skills can be added via the plugin system.
+- `web_browse`: Playwright-based web automation (navigate, click, type, fill forms, screenshots)
 
 ### Memory Manager (`src/memory/manager.ts`)
 Workflow-scoped conversation memory with:
@@ -272,14 +293,15 @@ npm run lint
 - Plugin system with hot-reload
 - Telegram connector
 - OpenRouter LLM integration
-- Built-in tools (shell, datetime)
+- Built-in tools (shell, datetime, web_browse)
+- Playwright web automation tool
+- Dynamic tool-aware system prompt (AI knows its available tools)
 - Setup wizard
 - Unit tests
 
 ### Phase 2
 - Web UI channel (REST API + WebSocket, connects via IPC)
 - Discord / Slack / WhatsApp connectors (same IPC-based pattern as Telegram)
-- Playwright web automation tool
 - Sub-agent support (orchestrator delegates tasks to specialized agents)
 - Scheduler with cron-like expressions
 - Multi-user support

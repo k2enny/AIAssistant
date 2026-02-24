@@ -104,6 +104,44 @@ describe('Orchestrator', () => {
     expect(response).toContain('datetime');
   });
 
+  test('should build system prompt with available tools', () => {
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('AIAssistant');
+    expect(prompt).toContain('You have access to the following tools');
+    expect(prompt).toContain('datetime');
+  });
+
+  test('should reflect dynamically registered tools in system prompt', () => {
+    // Initially has datetime
+    let prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('datetime');
+
+    // Register a new tool and verify it appears
+    const mockTool = {
+      schema: {
+        name: 'test_dynamic',
+        description: 'A dynamically added tool',
+        parameters: [
+          { name: 'input', type: 'string' as const, description: 'Input value', required: true },
+        ],
+        returns: 'Test result',
+        category: 'test',
+        permissions: [],
+      },
+      async execute() { return { success: true, output: 'ok' }; },
+    };
+    toolRegistry.register(mockTool);
+
+    prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('test_dynamic');
+    expect(prompt).toContain('A dynamically added tool');
+
+    // Unregister and verify it's gone
+    toolRegistry.unregister('test_dynamic');
+    prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).not.toContain('test_dynamic');
+  });
+
   test('should track workflows', async () => {
     const message: Message = {
       id: 'test-3',
