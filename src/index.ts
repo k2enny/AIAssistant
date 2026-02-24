@@ -478,8 +478,7 @@ async function startDaemon(): Promise<void> {
       let detail = '';
       try {
         const content = fs.readFileSync(stderrLog, 'utf-8').trim();
-        const lines = content.split('\n').slice(-5);
-        if (lines.length > 0) {
+        if (content.length > 0) {
           detail = '\n  Check logs: ' + stderrLog;
         }
       } catch {}

@@ -31,7 +31,6 @@ describe('Daemon start script', () => {
       ['-e', `
         process.env.AIASSISTANT_HOME = ${JSON.stringify(tmpDir)};
         // Override Daemon to simulate slow initialization
-        jest = undefined; // ensure no jest in subprocess
         const fs = require('fs');
         const path = require('path');
 

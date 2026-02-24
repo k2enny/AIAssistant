@@ -3,9 +3,10 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { Daemon } from './daemon';
 
-const HOME_DIR = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
+const HOME_DIR = process.env.AIASSISTANT_HOME || path.join(os.homedir(), '.aiassistant');
 const PID_FILE = path.join(HOME_DIR, 'daemon.pid');
 
 function writePidFile(): void {
