@@ -18,6 +18,7 @@ import { OpenRouterClient } from '../llm/openrouter';
 import { IPCServer } from './ipc-server';
 import { ShellTool } from '../tools/builtin/shell';
 import { DateTimeTool } from '../tools/builtin/datetime';
+import { PlaywrightTool } from '../tools/builtin/playwright';
 import { Message, Logger as ILogger } from '../core/interfaces';
 
 export class Daemon {
@@ -222,6 +223,7 @@ export class Daemon {
   private registerBuiltinTools(): void {
     this.toolRegistry.register(new ShellTool());
     this.toolRegistry.register(new DateTimeTool());
+    this.toolRegistry.register(new PlaywrightTool());
   }
 
   private async configureLLM(): Promise<void> {
