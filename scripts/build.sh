@@ -35,7 +35,7 @@ npx esbuild dist/daemon/start.js \
   --bundle \
   --platform=node \
   --target=node18 \
-  --outfile="$BUILD_DIR/daemon-start.js" \
+  --outfile="$BUILD_DIR/daemon/start.js" \
   --external:better-sqlite3 \
   --external:blessed \
   --external:telegraf \
