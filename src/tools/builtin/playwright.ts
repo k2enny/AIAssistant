@@ -3,6 +3,8 @@
  */
 import { Tool, ToolSchema, ToolResult, ToolContext } from '../../core/interfaces';
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import * as os from 'os';
+import * as path from 'path';
 
 export class PlaywrightTool implements Tool {
   readonly schema: ToolSchema = {
@@ -161,10 +163,7 @@ export class PlaywrightTool implements Tool {
     const browser = await chromium.launch({
       headless: params.headless !== false,
     });
-    const browserContext = await browser.newContext({
-      userAgent:
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    });
+    const browserContext = await browser.newContext();
     const page = await browserContext.newPage();
     page.setDefaultTimeout(params.timeout || 30000);
     this.sessions.set(sessionId, { browser, context: browserContext, page });
@@ -207,7 +206,7 @@ export class PlaywrightTool implements Tool {
   private async screenshot(params: Record<string, any>): Promise<ToolResult> {
     const { page } = await this.getOrCreateSession(params);
     const timestamp = Date.now();
-    const screenshotPath = params.path || `/tmp/screenshot-${timestamp}.png`;
+    const screenshotPath = params.path || path.join(os.tmpdir(), `screenshot-${timestamp}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: params.fullPage || false });
     return {
       success: true,
