@@ -229,7 +229,11 @@ program
 
       const shutdown = async () => {
         console.log('\n🛑 Stopping Telegram bot...');
-        await client.stop();
+        try {
+          await client.stop();
+        } catch (err: any) {
+          console.error(`⚠️ Error during shutdown: ${err.message}`);
+        }
         process.exit(0);
       };
 
