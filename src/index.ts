@@ -249,6 +249,51 @@ program
     }
   });
 
+// ============ test-telegram ============
+program
+  .command('test-telegram')
+  .description('Test Telegram bot token and daemon connectivity')
+  .action(async () => {
+    console.log('🔍 Testing Telegram connection...\n');
+
+    // Step 1: Check if token is configured
+    const { Vault } = require('./security/vault');
+    const vault = new Vault(HOME_DIR);
+    await vault.initialize();
+    const token = await vault.getSecret('telegram_bot_token');
+
+    if (!token) {
+      console.log('  ❌ Bot token: Not configured');
+      console.log('\n💡 Run setup to configure: ./aiassistant setup');
+      process.exit(1);
+    }
+    console.log('  ✅ Bot token: Configured');
+
+    // Step 2: Validate token with Telegram API
+    const { TelegramClient } = require('./channels/telegram/client');
+    const client = new TelegramClient(token);
+    const result = await client.testConnection();
+
+    if (result.token && result.bot) {
+      console.log(`  ✅ Telegram API: Connected`);
+      console.log(`     Bot: @${result.bot.username} (${result.bot.firstName}, ID: ${result.bot.id})`);
+    } else {
+      console.log(`  ❌ Telegram API: ${result.error}`);
+      console.log('\n💡 Check your bot token is correct. Get one from @BotFather on Telegram.');
+      process.exit(1);
+    }
+
+    // Step 3: Check daemon connectivity
+    if (result.daemon) {
+      console.log('  ✅ Daemon: Connected');
+    } else {
+      console.log(`  ⚠️  Daemon: ${result.error}`);
+      console.log('     Start daemon with: ./aiassistant start');
+    }
+
+    console.log('\n✅ Telegram connection test complete.');
+  });
+
 // ============ logs ============
 program
   .command('logs')
