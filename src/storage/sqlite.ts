@@ -47,8 +47,6 @@ export class SQLiteStorage implements StorageInterface {
     this.assertDb();
     
     const safeTable = this.sanitizeIdentifier(table);
-    
-    const safeTable = this.sanitizeIdentifier(table);
     const safeColumns = Object.entries(schema)
       .map(([name, type]) => `${this.sanitizeIdentifier(name)} ${type}`)
       .join(', ');
