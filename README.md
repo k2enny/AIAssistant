@@ -10,7 +10,7 @@ Production-grade, extensible AI operator tool — a daemon + TUI + Telegram agen
 ┌──────────────────────────────────────────────────────────┐
 │                     ./aiassistant CLI                     │
 ├───────────┬───────────┬───────────┬──────────┬───────────┤
-│   setup   │   start   │    tui    │  policy  │   logs    │
+│   setup   │   start   │   stop    │  policy  │   logs    │
 ├───────────┴───────────┴───────────┴──────────┴───────────┤
 │                                                           │
 │  ┌──────────────────────────────────────────────────────┐ │
@@ -23,22 +23,28 @@ Production-grade, extensible AI operator tool — a daemon + TUI + Telegram agen
 │  │  │ Tool Registry│  │Memory Manager│  │Plugin Loader│  │ │
 │  │  └─────────────┘  └──────────────┘  └────────────┘  │ │
 │  │                                                      │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │ │
-│  │  │  IPC Server  │  │   Telegram   │  │  SQLite    │  │ │
-│  │  │ (Unix Socket)│  │  Connector   │  │  Storage   │  │ │
-│  │  └──────┬───────┘  └──────────────┘  └────────────┘  │ │
+│  │  ┌──────────────┐  ┌──────────────┐                  │ │
+│  │  │  IPC Server  │  │   SQLite     │                  │ │
+│  │  │ (Unix Socket)│  │   Storage    │                  │ │
+│  │  └──────┬───────┘  └──────────────┘                  │ │
 │  └─────────┼────────────────────────────────────────────┘ │
-│            │                                              │
-│  ┌─────────┴──────────┐                                   │
-│  │   TUI Client        │ (attach/detach via IPC)          │
-│  └────────────────────┘                                   │
+│            │ IPC (Unix Socket)                            │
+│  ┌─────────┴──────────────────────────────────────────┐   │
+│  │              Channel Clients                        │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────┐  │   │
+│  │  │  TUI Client  │  │   Telegram   │  │ Future:  │  │   │
+│  │  │ (terminal)   │  │    Client    │  │ Discord, │  │   │
+│  │  │              │  │  (Telegraf)  │  │ WhatsApp │  │   │
+│  │  └──────────────┘  └──────────────┘  └──────────┘  │   │
+│  └────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### Key Design Decisions
 
 - **Node.js/TypeScript**: First-class Playwright support, async I/O, rich ecosystem for Telegram bots and TUI, and straightforward packaging.
-- **Daemon + Client**: Background service handles all logic; TUI connects/disconnects freely. Telegram continues working while TUI is closed.
+- **Daemon + Client**: Background service handles all logic; channel clients (TUI, Telegram, etc.) connect/disconnect freely via IPC.
+- **Channel Clients as Peers**: All input channels (TUI, Telegram, future Discord/WhatsApp) are separate processes that connect to the daemon via IPC. This keeps the daemon focused on orchestration and makes it easy to add new channel types.
 - **Unix Domain Socket IPC**: Secure, fast, local-only communication with auth token.
 - **Plugin Hot-Reload**: Plugins loaded/unloaded/reloaded at runtime without daemon restart.
 - **Policy Engine**: Every tool call evaluated against hierarchical rules before execution.
@@ -80,6 +86,9 @@ node dist/index.js status
 
 # Open interactive TUI (type 'quit' to exit, daemon stays running)
 node dist/index.js tui
+
+# Start Telegram bot channel (connects to daemon via IPC)
+node dist/index.js telegram
 
 # Stop daemon
 node dist/index.js stop
@@ -140,8 +149,10 @@ Evaluates rules before every tool execution. Supports:
 
 ### Tool Registry (`src/tools/registry.ts`)
 Manages tool registration with schemas for LLM function calling. Built-in tools:
-- `shell_exec`: Sandboxed shell command execution
-- `datetime`: Date/time operations
+- `shell_exec`: Sandboxed shell command execution (with policy approval)
+- `datetime`: Date/time operations (current time, parse, format, diff)
+
+> **Note:** Web browsing is not currently available as a built-in skill. Playwright-based web automation is planned for Phase 2. Custom web-related skills can be added via the plugin system.
 
 ### Memory Manager (`src/memory/manager.ts`)
 Workflow-scoped conversation memory with:
@@ -158,8 +169,10 @@ SQLite-based storage with SQL injection protection. Implements the `StorageInter
 - Auth token for IPC, socket permissions `0600`
 
 ### Channels
-- **Telegram** (`src/channels/telegram/connector.ts`): Bot API via Telegraf
+All channel clients are separate processes that connect to the daemon via IPC:
 - **TUI** (`src/channels/tui/client.ts`): Interactive terminal client via IPC
+- **Telegram** (`src/channels/telegram/client.ts`): Bot API via Telegraf, connects to daemon via IPC
+- Future channels (Discord, WhatsApp, etc.) follow the same pattern: connect to daemon via IPC
 
 ## Plugin Development
 
@@ -264,9 +277,10 @@ npm run lint
 - Unit tests
 
 ### Phase 2
-- Web UI channel (REST API + WebSocket)
-- Discord / Slack connectors
+- Web UI channel (REST API + WebSocket, connects via IPC)
+- Discord / Slack / WhatsApp connectors (same IPC-based pattern as Telegram)
 - Playwright web automation tool
+- Sub-agent support (orchestrator delegates tasks to specialized agents)
 - Scheduler with cron-like expressions
 - Multi-user support
 - Streaming LLM responses in TUI

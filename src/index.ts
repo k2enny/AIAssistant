@@ -202,6 +202,53 @@ program
     }
   });
 
+// ============ telegram ============
+program
+  .command('telegram')
+  .description('Start Telegram bot channel (connects to running daemon via IPC)')
+  .action(async () => {
+    if (!isDaemonRunning()) {
+      console.log('🔴 Daemon is not running. Start it with: ./aiassistant start');
+      process.exit(1);
+    }
+
+    // Load Telegram bot token from vault
+    const { Vault } = require('./security/vault');
+    const vault = new Vault(HOME_DIR);
+    await vault.initialize();
+    const token = await vault.getSecret('telegram_bot_token');
+
+    if (!token) {
+      console.error('❌ Telegram bot token not configured. Run setup first: ./aiassistant setup');
+      process.exit(1);
+    }
+
+    try {
+      const { TelegramClient } = require('./channels/telegram/client');
+      const client = new TelegramClient(token);
+
+      const shutdown = async () => {
+        console.log('\n🛑 Stopping Telegram bot...');
+        try {
+          await client.stop();
+        } catch (err: any) {
+          console.error(`⚠️ Error during shutdown: ${err.message}`);
+        }
+        process.exit(0);
+      };
+
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+
+      console.log('🤖 Starting Telegram bot channel...');
+      await client.start();
+      console.log('✅ Telegram bot is running. Press Ctrl+C to stop.');
+    } catch (err: any) {
+      console.error(`❌ Failed to start Telegram bot: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // ============ logs ============
 program
   .command('logs')
