@@ -54,6 +54,9 @@ export class Orchestrator {
     const tools = this.toolRegistry.getSchemas();
     const toolDescriptions = tools
       .map(t => {
+        if (t.parameters.length === 0) {
+          return `  - ${t.name}: ${t.description}`;
+        }
         const params = t.parameters
           .map(p => `${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`)
           .join('; ');
