@@ -1,0 +1,8 @@
+{
+  "name": "example-skill",
+  "version": "1.0.0",
+  "description": "Example plugin demonstrating the skill SDK",
+  "author": "AIAssistant",
+  "permissions": [],
+  "tools": ["echo"]
+}

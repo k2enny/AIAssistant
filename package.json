@@ -1,10 +1,22 @@
 {
   "name": "aiassistant",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Production-grade extensible AI operator tool - daemon + TUI + Telegram",
+  "main": "dist/index.js",
+  "bin": {
+    "aiassistant": "./dist/index.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "build:release": "bash scripts/build.sh",
+    "start": "node dist/index.js start",
+    "start:foreground": "node dist/index.js start --foreground",
+    "setup": "node dist/index.js setup",
+    "tui": "node dist/index.js tui",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist build coverage"
   },
   "repository": {
     "type": "git",
