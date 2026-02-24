@@ -1,7 +1,7 @@
 /**
  * Memory manager - workflow-scoped memory with summarization
  */
-import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import {
   WorkflowMemory,
   MemoryContext,
@@ -93,7 +93,7 @@ class WorkflowMemoryImpl implements WorkflowMemory {
     metadata?: Record<string, any>
   ): Promise<void> {
     const message: MemoryMessage = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       role,
       content,
       timestamp: new Date(),

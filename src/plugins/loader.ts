@@ -4,7 +4,6 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import {
   Plugin,
   PluginMetadata,
@@ -205,6 +204,15 @@ export class PluginLoader {
   }
 
   private clearModuleCache(pluginPath: string): void {
+    // Try to resolve and clear the exact entry point first
+    const entryPoint = path.join(pluginPath, 'index.js');
+    try {
+      const resolvedEntry = require.resolve(entryPoint);
+      delete require.cache[resolvedEntry];
+    } catch {
+      // Entry point not yet cached
+    }
+    // Also clear any other files from this plugin directory
     const resolvedPath = path.resolve(pluginPath);
     Object.keys(require.cache).forEach(key => {
       if (key.startsWith(resolvedPath)) {

@@ -4,7 +4,7 @@
 import { Telegraf, Context } from 'telegraf';
 import { ChannelConnector, Message, EventBusInterface } from '../../core/interfaces';
 import { Events } from '../../core/event-bus';
-import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 
 export class TelegramConnector implements ChannelConnector {
   readonly id = 'telegram';
@@ -25,7 +25,7 @@ export class TelegramConnector implements ChannelConnector {
       if (!ctx.message || !('text' in ctx.message)) return;
       
       const message: Message = {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         channelId: 'telegram',
         userId: ctx.message.from?.id?.toString() || 'unknown',
         content: ctx.message.text,

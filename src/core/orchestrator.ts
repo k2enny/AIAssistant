@@ -1,7 +1,7 @@
 /**
  * Main orchestrator - coordinates agents, tools, workflows
  */
-import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import {
   Message,
   Workflow,
@@ -266,7 +266,7 @@ If a tool call is blocked by policy, explain to the user what happened.`;
 
   createWorkflow(message: Message): Workflow {
     const workflow: Workflow = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       name: `workflow-${Date.now()}`,
       status: 'pending',
       agentId: 'main',

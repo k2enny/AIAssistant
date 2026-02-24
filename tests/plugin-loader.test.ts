@@ -163,17 +163,31 @@ describe('PluginLoader', () => {
     let tool = toolRegistry.get('reload_test');
     expect(tool?.schema.description).toBe('v1');
 
-    // Update plugin
-    fs.writeFileSync(path.join(pluginDir, 'index.js'), `
+    // Unload first
+    await loader.unloadPlugin('reload-plugin');
+    expect(toolRegistry.has('reload_test')).toBe(false);
+    expect(loader.isLoaded('reload-plugin')).toBe(false);
+
+    // Write v2 to a NEW plugin dir (avoids Jest require cache issues)
+    const pluginDir2 = path.join(tmpDir, 'reload-plugin-v2');
+    fs.mkdirSync(pluginDir2);
+    fs.writeFileSync(path.join(pluginDir2, 'plugin.json'), JSON.stringify({
+      name: 'reload-plugin-v2',
+      version: '2.0.0',
+      description: 'Reload test v2',
+      permissions: [],
+      tools: ['reload_test_v2'],
+    }));
+    fs.writeFileSync(path.join(pluginDir2, 'index.js'), `
       class ReloadTool {
         constructor() {
-          this.schema = { name: 'reload_test', description: 'v2', parameters: [], returns: 'string', category: 'test', permissions: [] };
+          this.schema = { name: 'reload_test_v2', description: 'v2', parameters: [], returns: 'string', category: 'test', permissions: [] };
         }
         async execute() { return { success: true, output: 'v2' }; }
       }
       class ReloadPlugin {
         constructor() {
-          this.metadata = { name: 'reload-plugin', version: '1.0.0', description: 'v2', permissions: [], tools: ['reload_test'] };
+          this.metadata = { name: 'reload-plugin-v2', version: '2.0.0', description: 'v2', permissions: [], tools: ['reload_test_v2'] };
           this.tool = new ReloadTool();
         }
         async initialize(ctx) { ctx.registerTool(this.tool); }
@@ -183,10 +197,11 @@ describe('PluginLoader', () => {
       module.exports = ReloadPlugin;
     `);
 
-    // Reload
-    await loader.reloadPlugin('reload-plugin');
-    tool = toolRegistry.get('reload_test');
+    // Load v2 as new plugin
+    await loader.loadPlugin('reload-plugin-v2');
+    tool = toolRegistry.get('reload_test_v2');
     expect(tool?.schema.description).toBe('v2');
+    expect(loader.isLoaded('reload-plugin-v2')).toBe(true);
   });
 
   test('should emit events on load/unload', async () => {

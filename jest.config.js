@@ -7,6 +7,10 @@ module.exports = {
   collectCoverageFrom: ['src/**/*.ts', '!src/index.ts'],
   coverageDirectory: 'coverage',
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
+  transformIgnorePatterns: [
+    '/node_modules/',
+    '/tmp/',
+  ],
 };

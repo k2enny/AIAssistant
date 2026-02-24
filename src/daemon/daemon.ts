@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import winston from 'winston';
-import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { EventBus, Events, getEventBus } from '../core/event-bus';
 import { SQLiteStorage } from '../storage/sqlite';
 import { Vault } from '../security/vault';
@@ -262,7 +262,7 @@ export class Daemon {
     // Send message
     this.ipcServer.registerHandler('send_message', async (params) => {
       const message: Message = {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         channelId: 'tui',
         userId: params.userId || 'local',
         content: params.content,

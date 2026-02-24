@@ -1,7 +1,7 @@
 /**
  * Policy engine - evaluates rules before tool/action execution
  */
-import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import {
   PolicyEngine as IPolicyEngine,
   PolicyRule,
@@ -86,7 +86,7 @@ export class PolicyEngineImpl implements IPolicyEngine {
   }
 
   async addRule(ruleData: Omit<PolicyRule, 'id'>): Promise<PolicyRule> {
-    const rule: PolicyRule = { ...ruleData, id: uuidv4() };
+    const rule: PolicyRule = { ...ruleData, id: crypto.randomUUID() };
     await this.storage.set(POLICY_TABLE, rule.id, rule);
     this.rulesCache.push(rule);
     
