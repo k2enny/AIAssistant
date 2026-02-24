@@ -460,11 +460,30 @@ async function startDaemon(): Promise<void> {
     env: { ...process.env, AIASSISTANT_HOME: HOME_DIR },
   });
 
+  // Track early exit before unref
+  let earlyExit = false;
+  let exitCode: number | null = null;
+  child.on('exit', (code) => {
+    earlyExit = true;
+    exitCode = code;
+  });
+
   child.unref();
   
-  // Wait for PID file to appear
-  for (let i = 0; i < 20; i++) {
+  // Wait for PID file to appear, with early exit detection
+  for (let i = 0; i < 60; i++) {
     await sleep(500);
+    if (earlyExit) {
+      const stderrLog = path.join(logsDir, 'daemon-stderr.log');
+      let detail = '';
+      try {
+        const content = fs.readFileSync(stderrLog, 'utf-8').trim();
+        if (content.length > 0) {
+          detail = '\n  Check logs: ' + stderrLog;
+        }
+      } catch {}
+      throw new Error(`Daemon process exited with code ${exitCode} during startup.${detail}`);
+    }
     if (fs.existsSync(PID_FILE)) return;
   }
   

@@ -164,10 +164,6 @@ export class Daemon {
       await this.ipcServer.start();
       this.logger.info(`IPC server started at ${this.ipcServer.getSocketPath()}`);
 
-      // Write PID file
-      const pidFile = path.join(this.homeDir, 'daemon.pid');
-      fs.writeFileSync(pidFile, process.pid.toString());
-
       this.running = true;
       this.eventBus.emit(Events.DAEMON_STARTED, { pid: process.pid });
       this.logger.info(`AIAssistant daemon started (PID: ${process.pid})`);
