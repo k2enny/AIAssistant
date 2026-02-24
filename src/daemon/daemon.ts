@@ -34,6 +34,7 @@ export class Daemon {
   private logger: winston.Logger;
   private homeDir: string;
   private channels: Map<string, any> = new Map();
+  private connectedChannels: Set<string> = new Set();
   private running = false;
 
   constructor() {
@@ -156,9 +157,6 @@ export class Daemon {
       // Configure LLM if API key available
       await this.configureLLM();
 
-      // Configure Telegram if token available
-      await this.configureTelegram();
-
       // Setup IPC handlers
       this.setupIPCHandlers();
 
@@ -241,33 +239,18 @@ export class Daemon {
     }
   }
 
-  private async configureTelegram(): Promise<void> {
-    const token = await this.vault.getSecret('telegram_bot_token');
-    if (token) {
-      try {
-        const { TelegramConnector } = require('../channels/telegram/connector');
-        const connector = new TelegramConnector(token);
-        await connector.initialize(this.eventBus);
-        this.channels.set('telegram', connector);
-        this.logger.info('Telegram connector started');
-      } catch (err: any) {
-        this.logger.error('Failed to start Telegram connector', { error: err.message });
-      }
-    } else {
-      this.logger.info('Telegram bot token not configured. Telegram disabled.');
-    }
-  }
-
   private setupIPCHandlers(): void {
     // Send message
     this.ipcServer.registerHandler('send_message', async (params) => {
       const message: Message = {
         id: crypto.randomUUID(),
-        channelId: 'tui',
+        channelId: params.channelId || 'tui',
         userId: params.userId || 'local',
         content: params.content,
         timestamp: new Date(),
+        metadata: params.metadata,
       };
+      this.connectedChannels.add(message.channelId);
       await this.orchestrator.handleMessage(message);
       return { status: 'ok', workflowId: message.id };
     });
@@ -345,7 +328,7 @@ export class Daemon {
         running: this.running,
         pid: process.pid,
         uptime: process.uptime(),
-        channels: Array.from(this.channels.keys()),
+        channels: [...Array.from(this.channels.keys()), ...Array.from(this.connectedChannels)],
         plugins: this.pluginLoader.getLoadedPlugins().map(p => p.metadata.name),
         tools: this.toolRegistry.getSchemas().map(t => t.name),
         activeWorkflows: this.orchestrator.getActiveWorkflows().length,
@@ -383,12 +366,5 @@ export class Daemon {
         this.ipcServer.broadcast(event, data);
       });
     }
-
-    // Handle incoming messages from Telegram
-    this.eventBus.on(Events.MESSAGE_RECEIVED, async (data) => {
-      if (data.channelId !== 'tui') {
-        await this.orchestrator.handleMessage(data);
-      }
-    });
   }
 }
