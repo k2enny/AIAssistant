@@ -227,9 +227,26 @@ export class Daemon {
   private async configureLLM(): Promise<void> {
     const apiKey = await this.vault.getSecret('openrouter_api_key');
     if (apiKey) {
-      const client = new OpenRouterClient({ apiKey });
+      const configPath = path.join(this.homeDir, 'config', 'config.json');
+      let llmConfig: { model?: string; maxTokens?: number; temperature?: number } = {};
+      try {
+        if (fs.existsSync(configPath)) {
+          const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (raw.llm) {
+            llmConfig = raw.llm;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn('Failed to read config.json for LLM settings', { error: err.message });
+      }
+      const client = new OpenRouterClient({
+        apiKey,
+        ...(llmConfig.model !== undefined && { model: llmConfig.model }),
+        ...(llmConfig.maxTokens !== undefined && { maxTokens: llmConfig.maxTokens }),
+        ...(llmConfig.temperature !== undefined && { temperature: llmConfig.temperature }),
+      });
       this.orchestrator.setLLMClient(client);
-      this.logger.info('LLM client configured (OpenRouter)');
+      this.logger.info('LLM client configured (OpenRouter)', { model: llmConfig.model || 'openai/gpt-4o-mini' });
     } else {
       this.logger.warn('OpenRouter API key not configured. LLM features disabled.');
     }
