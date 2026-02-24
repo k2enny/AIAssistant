@@ -87,10 +87,21 @@ export class PluginLoader {
   }
 
   async loadPlugin(pluginName: string): Promise<LoadedPlugin> {
+    // Validate plugin name to prevent path traversal
+    if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
+      throw new Error(`Invalid plugin name: ${pluginName}`);
+    }
+
     // Find plugin directory
     let pluginPath: string | null = null;
     for (const dir of this.pluginDirs) {
       const candidate = path.join(dir, pluginName);
+      // Ensure the resolved path is within the plugin directory
+      const resolvedCandidate = path.resolve(candidate);
+      const resolvedDir = path.resolve(dir);
+      if (!resolvedCandidate.startsWith(resolvedDir + path.sep)) {
+        continue;
+      }
       if (fs.existsSync(path.join(candidate, 'plugin.json'))) {
         pluginPath = candidate;
         break;

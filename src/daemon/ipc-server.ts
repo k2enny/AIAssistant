@@ -15,6 +15,9 @@ export class IPCServer {
   private clients: Map<string, net.Socket> = new Map();
   private handlers: Map<string, (params: any, clientId: string) => Promise<any>> = new Map();
   private eventBus: EventBusInterface;
+  private authAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
+  private readonly maxAuthAttempts = 5;
+  private readonly authWindowMs = 60000;
 
   constructor(eventBus: EventBusInterface, socketPath?: string) {
     const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
@@ -117,12 +120,28 @@ export class IPCServer {
 
           // First message must authenticate
           if (!authenticated) {
+            // Rate limit auth attempts
+            const remoteAddr = socket.remoteAddress || clientId;
+            const attempts = this.authAttempts.get(remoteAddr);
+            const now = Date.now();
+            if (attempts && attempts.count >= this.maxAuthAttempts && (now - attempts.lastAttempt) < this.authWindowMs) {
+              this.sendResponse(socket, {
+                id: request.id || 'unknown',
+                error: { code: 429, message: 'Too many authentication attempts' },
+              });
+              socket.destroy();
+              return;
+            }
+
             if (request.method === 'auth' && request.params?.token === this.authToken) {
               authenticated = true;
               this.clients.set(clientId, socket);
+              this.authAttempts.delete(remoteAddr);
               this.sendResponse(socket, { id: request.id, result: { status: 'authenticated', clientId } });
               continue;
             } else {
+              const current = this.authAttempts.get(remoteAddr) || { count: 0, lastAttempt: now };
+              this.authAttempts.set(remoteAddr, { count: current.count + 1, lastAttempt: now });
               this.sendResponse(socket, {
                 id: request.id || 'unknown',
                 error: { code: 401, message: 'Authentication required' },

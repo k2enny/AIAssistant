@@ -113,18 +113,15 @@ export class SQLiteStorage implements StorageInterface {
     });
   }
 
-  // Direct SQL execution for advanced queries
-  exec(sql: string, params?: any[]): any {
+  // Direct SQL execution for advanced queries (internal use only - never pass user input directly)
+  exec(sql: string, params: any[]): any {
     this.assertDb();
-    if (params) {
-      return this.db!.prepare(sql).run(...params);
-    }
-    return this.db!.exec(sql);
+    return this.db!.prepare(sql).run(...params);
   }
 
-  queryRaw(sql: string, params?: any[]): any[] {
+  queryRaw(sql: string, params: any[] = []): any[] {
     this.assertDb();
-    if (params) {
+    if (params.length > 0) {
       return this.db!.prepare(sql).all(...params) as any[];
     }
     return this.db!.prepare(sql).all() as any[];
