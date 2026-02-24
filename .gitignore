@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.js.map
+*.d.ts
+!src/**/*.d.ts
+coverage/
+.env
+*.log
+~/.aiassistant/
+build/
+*.tgz
+dist/
