@@ -29,7 +29,9 @@ npx esbuild dist/index.js \
   --external:better-sqlite3 \
   --external:blessed \
   --external:telegraf \
-  --external:inquirer
+  --external:inquirer \
+  --external:playwright-core \
+  --external:playwright
 
 npx esbuild dist/daemon/start.js \
   --bundle \
@@ -39,7 +41,9 @@ npx esbuild dist/daemon/start.js \
   --external:better-sqlite3 \
   --external:blessed \
   --external:telegraf \
-  --external:inquirer
+  --external:inquirer \
+  --external:playwright-core \
+  --external:playwright
 
 # Copy native dependencies
 echo "  Copying dependencies..."
