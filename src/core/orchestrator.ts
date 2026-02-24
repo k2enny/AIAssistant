@@ -314,7 +314,7 @@ If a tool call is blocked by policy, explain to the user what happened.${toolSec
   private findWorkflowForUser(userId: string, channelId: string): Workflow | undefined {
     return Array.from(this.workflows.values()).find(
       w => w.userId === userId && w.channelId === channelId &&
-           (w.status === 'running' || w.status === 'pending' || w.status === 'paused')
+           (w.status === 'running' || w.status === 'pending' || w.status === 'paused' || w.status === 'completed')
     );
   }
 }

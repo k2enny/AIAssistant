@@ -5,6 +5,7 @@ import { MemoryManager } from '../src/memory/manager';
 import { PolicyEngineImpl } from '../src/policy/engine';
 import { AuditLogger } from '../src/security/audit';
 import { DateTimeTool } from '../src/tools/builtin/datetime';
+import { PlaywrightTool } from '../src/tools/builtin/playwright';
 import { StorageInterface, Message } from '../src/core/interfaces';
 
 class MockStorage implements StorageInterface {
@@ -111,6 +112,16 @@ describe('Orchestrator', () => {
     expect(prompt).toContain('datetime');
   });
 
+  test('should include web_browse tool in system prompt when registered', () => {
+    toolRegistry.register(new PlaywrightTool());
+
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('web_browse');
+    expect(prompt).toContain('Automate web browsing');
+
+    toolRegistry.unregister('web_browse');
+  });
+
   test('should reflect dynamically registered tools in system prompt', () => {
     // Initially has datetime
     let prompt = orchestrator.buildSystemPrompt();
@@ -188,5 +199,56 @@ describe('Orchestrator', () => {
 
     await orchestrator.handleMessage(message);
     expect(response).toContain('Current time');
+  });
+
+  test('should reuse workflow for same user and channel across messages', async () => {
+    const msg1: Message = {
+      id: 'test-reuse-1',
+      channelId: 'tui',
+      userId: 'user1',
+      content: 'help',
+      timestamp: new Date(),
+    };
+
+    const msg2: Message = {
+      id: 'test-reuse-2',
+      channelId: 'tui',
+      userId: 'user1',
+      content: '/time',
+      timestamp: new Date(),
+    };
+
+    await orchestrator.handleMessage(msg1);
+    const workflowsAfterFirst = orchestrator.getWorkflows();
+    expect(workflowsAfterFirst.length).toBe(1);
+    const firstWorkflowId = workflowsAfterFirst[0].id;
+
+    await orchestrator.handleMessage(msg2);
+    const workflowsAfterSecond = orchestrator.getWorkflows();
+    expect(workflowsAfterSecond.length).toBe(1);
+    expect(workflowsAfterSecond[0].id).toBe(firstWorkflowId);
+  });
+
+  test('should create separate workflows for different channels', async () => {
+    const msg1: Message = {
+      id: 'test-chan-1',
+      channelId: 'tui',
+      userId: 'user1',
+      content: 'help',
+      timestamp: new Date(),
+    };
+
+    const msg2: Message = {
+      id: 'test-chan-2',
+      channelId: 'telegram',
+      userId: 'user1',
+      content: 'help',
+      timestamp: new Date(),
+    };
+
+    await orchestrator.handleMessage(msg1);
+    await orchestrator.handleMessage(msg2);
+    const workflows = orchestrator.getWorkflows();
+    expect(workflows.length).toBe(2);
   });
 });

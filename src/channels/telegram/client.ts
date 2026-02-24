@@ -119,6 +119,38 @@ export class TelegramClient {
     this.eventHandlers.get(event)!.push(handler);
   }
 
+  async testConnection(): Promise<{ token: boolean; bot?: { id: number; username: string; firstName: string }; daemon: boolean; error?: string }> {
+    const result: { token: boolean; bot?: { id: number; username: string; firstName: string }; daemon: boolean; error?: string } = {
+      token: false,
+      daemon: false,
+    };
+
+    // Test Telegram API token
+    try {
+      const me = await this.bot.telegram.getMe();
+      result.token = true;
+      result.bot = {
+        id: me.id,
+        username: me.username || '',
+        firstName: me.first_name,
+      };
+    } catch (err: any) {
+      result.error = `Telegram API error: ${err.message}`;
+      return result;
+    }
+
+    // Test daemon connectivity
+    try {
+      await this.connect();
+      result.daemon = true;
+      await this.disconnect();
+    } catch (err: any) {
+      result.error = `Daemon connection error: ${err.message}`;
+    }
+
+    return result;
+  }
+
   async start(): Promise<void> {
     await this.connect();
     this.setupEventHandlers();

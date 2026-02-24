@@ -14,6 +14,7 @@ jest.mock('telegraf', () => {
       stop: jest.fn(),
       telegram: {
         sendMessage: jest.fn().mockResolvedValue(undefined),
+        getMe: jest.fn().mockResolvedValue({ id: 123456, username: 'test_bot', first_name: 'TestBot', is_bot: true }),
       },
       _handlers: handlers,
       _commands: commands,
@@ -237,5 +238,41 @@ describe('TelegramClient', () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');
     expect(client.isRunning()).toBe(false);
+  });
+
+  test('testConnection should validate token and daemon connectivity', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    const result = await client.testConnection();
+
+    expect(result.token).toBe(true);
+    expect(result.bot).toBeDefined();
+    expect(result.bot.id).toBe(123456);
+    expect(result.bot.username).toBe('test_bot');
+    expect(result.bot.firstName).toBe('TestBot');
+    expect(result.daemon).toBe(true);
+  });
+
+  test('testConnection should report daemon error when daemon is unreachable', async () => {
+    // Point to a non-existent socket
+    const badHome = `/tmp/aiassistant-test-conn-${Date.now()}`;
+    fs.mkdirSync(badHome, { recursive: true });
+    fs.writeFileSync(path.join(badHome, '.auth-token'), 'token');
+    process.env.AIASSISTANT_HOME = badHome;
+
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    const result = await client.testConnection();
+
+    expect(result.token).toBe(true);
+    expect(result.bot).toBeDefined();
+    expect(result.daemon).toBe(false);
+    expect(result.error).toContain('Daemon connection error');
+
+    // Restore env for other tests
+    process.env.AIASSISTANT_HOME = homeDir;
+    fs.rmSync(badHome, { recursive: true, force: true });
   });
 });
