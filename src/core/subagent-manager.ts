@@ -8,11 +8,17 @@ import { Events } from './event-bus';
 
 export type SubAgentStatus = 'running' | 'paused' | 'stopped' | 'error';
 
+export interface SubAgentContext {
+  emitMessage: (msg: string) => void;
+  channelId?: string;
+  userId?: string;
+}
+
 export interface SubAgentTask {
   /** Human-readable description of what this agent does */
   description: string;
-  /** The function to execute repeatedly (or once). Receives an abort signal. */
-  execute: (signal: AbortSignal) => Promise<void>;
+  /** The function to execute repeatedly (or once). Receives an abort signal and context. */
+  execute: (signal: AbortSignal, context: SubAgentContext) => Promise<void>;
   /** Interval in ms between executions (0 = run once) */
   intervalMs: number;
 }
@@ -27,6 +33,8 @@ export interface SubAgentInfo {
   lastRunAt?: Date;
   runCount: number;
   lastError?: string;
+  channelId?: string;
+  userId?: string;
 }
 
 interface SubAgentEntry {
@@ -44,10 +52,7 @@ export class SubAgentManager {
     this.eventBus = eventBus;
   }
 
-  /**
-   * Spawn a new background sub-agent.
-   */
-  spawn(name: string, task: SubAgentTask): SubAgentInfo {
+  spawn(name: string, task: SubAgentTask, channelId?: string, userId?: string): SubAgentInfo {
     const id = crypto.randomUUID();
     const info: SubAgentInfo = {
       id,
@@ -57,6 +62,8 @@ export class SubAgentManager {
       intervalMs: task.intervalMs,
       createdAt: new Date(),
       runCount: 0,
+      channelId,
+      userId,
     };
 
     const entry: SubAgentEntry = {
@@ -168,8 +175,24 @@ export class SubAgentManager {
       if (entry.info.status !== 'running') return;
 
       entry.abortController = new AbortController();
+
+      const context: SubAgentContext = {
+        channelId: entry.info.channelId,
+        userId: entry.info.userId,
+        emitMessage: (msg: string) => {
+          if (entry.info.channelId) {
+            this.eventBus.emit(Events.AGENT_RESPONSE, {
+              workflowId: entry.info.id,
+              userId: entry.info.userId || 'system',
+              channelId: entry.info.channelId,
+              content: `[SubAgent: ${entry.info.name}] ${msg}`,
+            });
+          }
+        },
+      };
+
       try {
-        await entry.task.execute(entry.abortController.signal);
+        await entry.task.execute(entry.abortController.signal, context);
         entry.info.lastRunAt = new Date();
         entry.info.runCount++;
         entry.info.lastError = undefined;

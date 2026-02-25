@@ -39,7 +39,7 @@ describe('TelegramClient', () => {
   let receivedRequests: any[];
 
   beforeEach(async () => {
-    homeDir = `/tmp/aiassistant-telegram-test-${Date.now()}`;
+    homeDir = path.join(require('os').tmpdir(), `aiassistant-telegram-test-${Date.now()}`);
     socketPath = path.join(homeDir, 'daemon.sock');
     authToken = crypto.randomBytes(16).toString('hex');
     receivedRequests = [];
@@ -145,7 +145,7 @@ describe('TelegramClient', () => {
       server.close(() => resolve());
     });
     if (fs.existsSync(socketPath)) {
-      try { fs.unlinkSync(socketPath); } catch {}
+      try { fs.unlinkSync(socketPath); } catch { }
     }
     if (fs.existsSync(homeDir)) {
       fs.rmSync(homeDir, { recursive: true, force: true });
@@ -231,7 +231,7 @@ describe('TelegramClient', () => {
 
   test('should throw when connecting without daemon running', async () => {
     // Point to a non-existent socket
-    const badHome = `/tmp/aiassistant-bad-${Date.now()}`;
+    const badHome = path.join(require('os').tmpdir(), `aiassistant-bad-${Date.now()}`);
     fs.mkdirSync(badHome, { recursive: true });
     fs.writeFileSync(path.join(badHome, '.auth-token'), 'token');
     process.env.AIASSISTANT_HOME = badHome;
@@ -353,7 +353,7 @@ describe('TelegramClient', () => {
 
   test('testConnection should report daemon error when daemon is unreachable', async () => {
     // Point to a non-existent socket
-    const badHome = `/tmp/aiassistant-test-conn-${Date.now()}`;
+    const badHome = path.join(require('os').tmpdir(), `aiassistant-test-conn-${Date.now()}`);
     fs.mkdirSync(badHome, { recursive: true });
     fs.writeFileSync(path.join(badHome, '.auth-token'), 'token');
     process.env.AIASSISTANT_HOME = badHome;

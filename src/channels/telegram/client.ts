@@ -157,10 +157,17 @@ export class TelegramClient {
     this.setupEventHandlers();
     this.setupBot();
 
-    // Fail fast if polling cannot start so callers don't report "running"
-    // while the bot is actually unable to receive/send messages.
+    // Validate the token with a quick API call before launching polling.
+    // getMe() is a lightweight request that fails fast on bad tokens.
+    await this.bot.telegram.getMe();
+
+    // Start long-polling in the background.  Do NOT await – launch()
+    // resolves only after the first successful getUpdates round-trip
+    // which can hang for 30+ seconds or forever on 409 conflicts.
     this.launchPromise = this.bot.launch();
-    await this.launchPromise;
+    this.launchPromise.catch((err) => {
+      console.error(`Telegram polling error: ${err.message}`);
+    });
     this.running = true;
   }
 

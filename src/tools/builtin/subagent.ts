@@ -118,7 +118,7 @@ export class SubAgentTool implements Tool {
     try {
       switch (params.action) {
         case 'spawn':
-          return this.spawn(params);
+          return this.spawn(params, context);
         case 'list':
           return this.list();
         case 'pause':
@@ -139,7 +139,7 @@ export class SubAgentTool implements Tool {
 
   // ------------------------------------------------------------------
 
-  private spawn(params: Record<string, any>): ToolResult {
+  private spawn(params: Record<string, any>, context: ToolContext): ToolResult {
     const factory = this.taskFactory.get(params.task_type);
     if (!factory) {
       const available = Array.from(this.taskFactory.keys()).join(', ');
@@ -154,7 +154,7 @@ export class SubAgentTool implements Tool {
     const task = factory(params.task_config || {}, intervalMs);
     task.description = params.description || `${params.task_type} sub-agent`;
 
-    const info = this.manager.spawn(params.name, task);
+    const info = this.manager.spawn(params.name, task, context.channelId, context.userId);
     return {
       success: true,
       output: {
@@ -221,7 +221,7 @@ export class SubAgentTool implements Tool {
     return {
       description: `Watches Gmail for emails matching: ${query}`,
       intervalMs,
-      execute: async (_signal: AbortSignal) => {
+      execute: async (_signal: AbortSignal, context: any) => {
         // This is a stub implementation.  In production this would:
         // 1. Use GmailTool to search for matching emails
         // 2. Compare against last-seen message IDs (stored in storage)
@@ -233,10 +233,15 @@ export class SubAgentTool implements Tool {
         const path = require('path');
         const logDir = path.join(homeDir, 'logs');
         if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(
-          path.join(logDir, 'subagent.log'),
-          `[${new Date().toISOString()}] email_watcher ran (query: ${query})\n`
-        );
+
+        const timestamp = new Date().toISOString();
+        const logMessage = `[${timestamp}] email_watcher ran (query: ${query})\n`;
+        fs.appendFileSync(path.join(logDir, 'subagent.log'), logMessage);
+
+        // Output directly back to the user channel
+        if (context && context.emitMessage) {
+          context.emitMessage(`Email watcher ran successfully for query: "${query}"`);
+        }
       },
     };
   }

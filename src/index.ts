@@ -75,15 +75,15 @@ program
       process.env.AIASSISTANT_FOREGROUND = '1';
       const { Daemon } = require('./daemon/daemon');
       const daemon = new Daemon();
-      
+
       const shutdown = async () => {
         await daemon.stop();
         process.exit(0);
       };
-      
+
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
-      
+
       await daemon.start();
     } else {
       await startDaemon();
@@ -105,7 +105,7 @@ program
     try {
       process.kill(pid, 'SIGTERM');
       console.log(`🛑 Stopping daemon (PID: ${pid})...`);
-      
+
       // Wait for process to exit
       for (let i = 0; i < 30; i++) {
         await sleep(500);
@@ -116,7 +116,7 @@ program
           return;
         }
       }
-      
+
       // Force kill
       try {
         process.kill(pid, 'SIGKILL');
@@ -130,6 +130,37 @@ program
       if (fs.existsSync(PID_FILE)) {
         fs.unlinkSync(PID_FILE);
       }
+    }
+
+    // --- Subagent and Telegram Cleanup ---
+    // Stop the telegram bot if it was running.
+    const telegramPid = readTelegramPid();
+    if (telegramPid) {
+      try {
+        process.kill(telegramPid, 'SIGTERM');
+        console.log(`🛑 Stopping associated Telegram bot (PID: ${telegramPid})...`);
+        for (let i = 0; i < 30; i++) {
+          await sleep(500);
+          try {
+            process.kill(telegramPid, 0);
+          } catch {
+            console.log('✅ Telegram bot stopped');
+            break;
+          }
+        }
+        try { process.kill(telegramPid, 'SIGKILL'); } catch { }
+      } catch (err) {
+        if (fs.existsSync(TELEGRAM_PID_FILE)) fs.unlinkSync(TELEGRAM_PID_FILE);
+      }
+    }
+
+    // Clean up subagent persistent artifacts
+    const subagentLogPath = path.join(HOME_DIR, 'logs', 'subagent.log');
+    if (fs.existsSync(subagentLogPath)) {
+      try {
+        fs.unlinkSync(subagentLogPath);
+        console.log('✅ Subagent logs purged');
+      } catch { }
     }
   });
 
@@ -495,7 +526,7 @@ function isDaemonRunning(): boolean {
   } catch {
     // Process doesn't exist, clean up stale PID file
     if (fs.existsSync(PID_FILE)) {
-      try { fs.unlinkSync(PID_FILE); } catch {}
+      try { fs.unlinkSync(PID_FILE); } catch { }
     }
     return false;
   }
@@ -518,7 +549,7 @@ function isTelegramRunning(): boolean {
     return true;
   } catch {
     if (fs.existsSync(TELEGRAM_PID_FILE)) {
-      try { fs.unlinkSync(TELEGRAM_PID_FILE); } catch {}
+      try { fs.unlinkSync(TELEGRAM_PID_FILE); } catch { }
     }
     return false;
   }
@@ -578,7 +609,7 @@ async function startTelegramBot(): Promise<void> {
           const lines = content.split('\n').slice(-20);
           detail = '\n  ' + lines.join('\n  ') + '\n  Full logs: ' + stderrLog;
         }
-      } catch {}
+      } catch { }
       throw new Error(`Telegram process exited with code ${exitCode} during startup.${detail}`);
     }
     if (fs.existsSync(TELEGRAM_PID_FILE)) return;
@@ -597,7 +628,7 @@ async function startDaemon(): Promise<void> {
       `    bash scripts/build.sh`
     );
   }
-  
+
   // Ensure logs directory exists
   const logsDir = path.join(HOME_DIR, 'logs');
   if (!fs.existsSync(logsDir)) {
@@ -622,7 +653,7 @@ async function startDaemon(): Promise<void> {
   });
 
   child.unref();
-  
+
   // Wait for PID file to appear, with early exit detection
   for (let i = 0; i < 60; i++) {
     await sleep(500);
@@ -635,12 +666,12 @@ async function startDaemon(): Promise<void> {
           const lines = content.split('\n').slice(-20);
           detail = '\n  ' + lines.join('\n  ') + '\n  Full logs: ' + stderrLog;
         }
-      } catch {}
+      } catch { }
       throw new Error(`Daemon process exited with code ${exitCode} during startup.${detail}`);
     }
     if (fs.existsSync(PID_FILE)) return;
   }
-  
+
   throw new Error('Daemon failed to start (timeout waiting for PID file)');
 }
 

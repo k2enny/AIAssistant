@@ -75,6 +75,7 @@ async function main(): Promise<void> {
   // Write PID file only after the bot has started successfully so the
   // parent process treats its presence as a reliable "ready" signal.
   writePidFile();
+  console.log(`Telegram bot started (PID: ${process.pid})`);
 }
 
 main();
