@@ -23,6 +23,7 @@ import { PlaywrightTool } from '../tools/builtin/playwright';
 import { GmailTool } from '../tools/builtin/gmail';
 import { SelfAwarenessTool } from '../tools/builtin/self-awareness';
 import { SubAgentTool } from '../tools/builtin/subagent';
+import { ConfigTool } from '../tools/builtin/config';
 import { Message, Logger as ILogger } from '../core/interfaces';
 
 export class Daemon {
@@ -45,7 +46,7 @@ export class Daemon {
 
   constructor() {
     this.homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
-    
+
     // Ensure directories exist
     for (const dir of ['logs', 'data', 'plugins', 'config']) {
       const p = path.join(this.homeDir, dir);
@@ -53,7 +54,7 @@ export class Daemon {
         fs.mkdirSync(p, { recursive: true });
       }
     }
-    
+
     // Initialize logger
     this.logger = winston.createLogger({
       level: 'info',
@@ -93,21 +94,21 @@ export class Daemon {
     this.memoryManager = new MemoryManager(this.storage);
     this.toolRegistry = new ToolRegistry(this.eventBus);
     this.subAgentManager = new SubAgentManager(this.eventBus);
-    
+
     const loggerAdapter: ILogger = {
       info: (msg, meta) => this.logger.info(msg, meta),
       warn: (msg, meta) => this.logger.warn(msg, meta),
       error: (msg, meta) => this.logger.error(msg, meta),
       debug: (msg, meta) => this.logger.debug(msg, meta),
     };
-    
+
     this.pluginLoader = new PluginLoader(
       this.storage,
       this.eventBus,
       this.toolRegistry,
       loggerAdapter
     );
-    
+
     this.orchestrator = new Orchestrator(
       this.eventBus,
       this.storage,
@@ -116,7 +117,7 @@ export class Daemon {
       this.policyEngine,
       this.auditLogger
     );
-    
+
     this.ipcServer = new IPCServer(this.eventBus);
   }
 
@@ -149,7 +150,7 @@ export class Daemon {
 
       // Initialize plugin loader
       await this.pluginLoader.initialize();
-      
+
       // Load any discovered plugins
       const plugins = await this.pluginLoader.discoverPlugins();
       for (const plugin of plugins) {
@@ -234,6 +235,7 @@ export class Daemon {
     this.toolRegistry.register(new DateTimeTool());
     this.toolRegistry.register(new PlaywrightTool());
     this.toolRegistry.register(new GmailTool());
+    this.toolRegistry.register(new ConfigTool(this.vault));
 
     const selfAwareness = new SelfAwarenessTool();
     selfAwareness.setContext({

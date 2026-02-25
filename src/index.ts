@@ -536,6 +536,14 @@ function readTelegramPid(): number | null {
 async function startTelegramBot(): Promise<void> {
   const entryScript = path.join(__dirname, 'channels', 'telegram', 'start.js');
 
+  if (!fs.existsSync(entryScript)) {
+    throw new Error(
+      `Telegram entry script not found at: ${entryScript}\n` +
+      `  This usually means the build is incomplete. Re-run the build:\n` +
+      `    bash scripts/build.sh`
+    );
+  }
+
   const logsDir = path.join(HOME_DIR, 'logs');
   if (!fs.existsSync(logsDir)) {
     fs.mkdirSync(logsDir, { recursive: true });
@@ -581,6 +589,14 @@ async function startTelegramBot(): Promise<void> {
 
 async function startDaemon(): Promise<void> {
   const entryScript = path.join(__dirname, 'daemon', 'start.js');
+
+  if (!fs.existsSync(entryScript)) {
+    throw new Error(
+      `Daemon entry script not found at: ${entryScript}\n` +
+      `  This usually means the build is incomplete. Re-run the build:\n` +
+      `    bash scripts/build.sh`
+    );
+  }
   
   // Ensure logs directory exists
   const logsDir = path.join(HOME_DIR, 'logs');

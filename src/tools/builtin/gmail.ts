@@ -27,13 +27,13 @@ export class GmailTool implements Tool {
   readonly schema: ToolSchema = {
     name: 'gmail',
     description:
-      'Send and receive emails via Gmail. Supports sending, reading, listing, searching emails and configuring Gmail OAuth2 credentials.',
+      'Send and receive emails via Gmail. Supports sending, reading, listing, and searching emails.',
     parameters: [
       {
         name: 'action',
         type: 'string',
         description:
-          'Action to perform: "send", "read", "list", "search", "configure", "status"',
+          'Action to perform: "send", "read", "list", "search", "status"',
         required: true,
       },
       {
@@ -73,24 +73,6 @@ export class GmailTool implements Tool {
         required: false,
         default: 10,
       },
-      {
-        name: 'client_id',
-        type: 'string',
-        description: 'Google OAuth2 client ID (for "configure")',
-        required: false,
-      },
-      {
-        name: 'client_secret',
-        type: 'string',
-        description: 'Google OAuth2 client secret (for "configure")',
-        required: false,
-      },
-      {
-        name: 'refresh_token',
-        type: 'string',
-        description: 'Google OAuth2 refresh token (for "configure")',
-        required: false,
-      },
     ],
     returns: 'Email data or operation result',
     category: 'communication',
@@ -107,7 +89,7 @@ export class GmailTool implements Tool {
 
   validate(params: Record<string, any>): { valid: boolean; errors?: string[] } {
     const errors: string[] = [];
-    const validActions = ['send', 'read', 'list', 'search', 'configure', 'status'];
+    const validActions = ['send', 'read', 'list', 'search', 'status'];
 
     if (!params.action || typeof params.action !== 'string') {
       errors.push('action is required and must be a string');
@@ -125,11 +107,7 @@ export class GmailTool implements Tool {
       errors.push('message_id is required for read action');
     }
 
-    if (params.action === 'configure') {
-      if (!params.client_id) errors.push('client_id is required for configure action');
-      if (!params.client_secret) errors.push('client_secret is required for configure action');
-      if (!params.refresh_token) errors.push('refresh_token is required for configure action');
-    }
+
 
     return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
@@ -141,8 +119,6 @@ export class GmailTool implements Tool {
 
     try {
       switch (params.action) {
-        case 'configure':
-          return this.configure(params);
         case 'status':
           return await this.status();
         case 'send':
@@ -213,23 +189,7 @@ export class GmailTool implements Tool {
     return data.access_token;
   }
 
-  // ------------------------------------------------------------------
-  // Actions
-  // ------------------------------------------------------------------
 
-  private configure(params: Record<string, any>): ToolResult {
-    this.saveCredentials({
-      client_id: params.client_id,
-      client_secret: params.client_secret,
-      refresh_token: params.refresh_token,
-    });
-    return {
-      success: true,
-      output: {
-        message: 'Gmail OAuth2 credentials saved successfully. You can now use send, read, list, and search actions.',
-      },
-    };
-  }
 
   private async status(): Promise<ToolResult> {
     const creds = this.loadCredentials();

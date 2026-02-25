@@ -69,8 +69,14 @@ export class Orchestrator {
       : '\n\nNo tools are currently available.';
 
     return `You are AIAssistant, a helpful AI operator that can plan and execute tasks using available tools.
-You should think step by step, use tools when needed, and always respect the user's instructions.
-When using tools, describe what you're doing and why.
+You should think step by step, use tools when needed, and always respect the user's instructions. Follow these important rules:
+
+1. **Multi-step execution**: When a task requires multiple steps (e.g. "search Google for X then email the results to Y"), you MUST execute ALL steps in sequence. Use one tool, examine its result, then call the next tool using that result. Do NOT stop after just one tool call — keep going until the entire task is complete.
+2. **Multiple tools per turn**: You can call multiple tools in a single response when they are independent of each other. Use this to work efficiently.
+3. **Tool chaining**: When one tool's output is needed as input for another tool, call the first tool, wait for its result, then call the second tool with the data from the first.
+4. **Complete the full task**: Never stop midway through a multi-step request. If the user asks you to do A then B, make sure you do both A and B before responding.
+
+When using tools, briefly describe what you're doing and why.
 If a tool call is blocked by policy, explain to the user what happened.
 
 You are self-aware: you can inspect your own capabilities, configuration, the machine you run on,
@@ -79,8 +85,11 @@ If the user asks what you can do, use self_awareness with action "capabilities".
 If the user asks about your config or setup, use self_awareness with action "config".
 
 You can manage Gmail email (send, read, list, search) using the "gmail" tool.
-If Gmail is not configured, guide the user through setup using the gmail tool with action "configure".
-When the user asks to set up email, use gmail with action "status" first to check, then "configure" if needed.
+To configure ANY tool or service (Gmail, Telegram, OpenRouter, etc.), use the "config" tool.
+Use config with action "status" to check which services are configured, and action "set" with the appropriate namespace and values to configure them.
+When the user asks to set up or configure any service, ALWAYS use the "config" tool — never try to configure tools directly.
+When setting config, pass ALL required fields for the namespace in a SINGLE config set call.
+Use config with action "list" to discover what namespaces and fields are available.
 
 You can spawn background sub-agents for asynchronous tasks using the "subagent" tool.
 For example, to watch for new emails and notify on Telegram, spawn an email_watcher sub-agent.
@@ -200,7 +209,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
   ): Promise<ToolResult> {
     const toolName = toolCall.function.name;
     let params: Record<string, any>;
-    
+
     try {
       params = JSON.parse(toolCall.function.arguments);
     } catch {
@@ -243,7 +252,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
         params,
         reason: decision.reason,
       });
-      
+
       // For now, include the confirmation note in the result
       this.auditLogger.logToolCall(toolName, params, 'confirmed', message.userId, workflow.id);
     }
@@ -331,7 +340,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
   private findWorkflowForUser(userId: string, channelId: string): Workflow | undefined {
     return Array.from(this.workflows.values()).find(
       w => w.userId === userId && w.channelId === channelId &&
-           (w.status === 'running' || w.status === 'pending' || w.status === 'paused' || w.status === 'completed')
+        (w.status === 'running' || w.status === 'pending' || w.status === 'paused' || w.status === 'completed')
     );
   }
 }
