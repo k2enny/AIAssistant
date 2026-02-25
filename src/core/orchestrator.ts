@@ -331,7 +331,44 @@ RULES:
       }
     }
 
-    return response.content || 'I processed your request but could not generate a response. Please try again or rephrase your question.';
+    if (!response.content) {
+      return this.buildFallbackMessage(response.finishReason, iterations, maxIterations, messages);
+    }
+    return response.content;
+  }
+
+  /**
+   * Build a descriptive fallback message when the LLM returns empty content,
+   * explaining what went wrong instead of using a generic fixed string.
+   */
+  private buildFallbackMessage(
+    finishReason: string | undefined,
+    iterations: number,
+    maxIterations: number,
+    messages: LLMMessage[]
+  ): string {
+    const parts: string[] = ['I was unable to generate a response.'];
+
+    if (iterations >= maxIterations) {
+      parts.push(`The request required too many steps (${iterations} tool calls reached the limit). Try breaking your request into smaller parts.`);
+    } else if (finishReason === 'length') {
+      parts.push('The response was cut off because it exceeded the maximum token length. Try asking a more specific question.');
+    } else if (iterations > 0) {
+      // Summarise which tools ran so the user knows what happened
+      const toolNames = messages
+        .filter(m => m.role === 'tool' && m.name)
+        .map(m => m.name!);
+      const uniqueTools = [...new Set(toolNames)];
+      if (uniqueTools.length > 0) {
+        parts.push(`I executed ${uniqueTools.join(', ')} but the model returned an empty response afterward. You can try rephrasing your question.`);
+      } else {
+        parts.push('Tools were called but the model did not produce a final answer. Please try again.');
+      }
+    } else {
+      parts.push(`The model returned an empty response (finish reason: ${finishReason || 'unknown'}). This may be a temporary issue — please try again.`);
+    }
+
+    return parts.join(' ');
   }
 
   private async executeToolCall(

@@ -317,4 +317,32 @@ describe('Orchestrator', () => {
     );
     expect(badMessages).toHaveLength(0);
   });
+
+  test('fallback message should describe what went wrong', () => {
+    // Access the private method via bracket notation for testing
+    const buildFallback = (orchestrator as any).buildFallbackMessage.bind(orchestrator);
+
+    // Max iterations reached
+    const maxIterMsg = buildFallback('stop', 10, 10, []);
+    expect(maxIterMsg).toContain('too many steps');
+    expect(maxIterMsg).toContain('10 tool calls');
+
+    // Token limit hit
+    const lengthMsg = buildFallback('length', 0, 10, []);
+    expect(lengthMsg).toContain('exceeded the maximum token length');
+
+    // Tools ran but empty response
+    const toolMsg = buildFallback('stop', 2, 10, [
+      { role: 'tool' as const, content: '{}', name: 'gmail' },
+      { role: 'tool' as const, content: '{}', name: 'shell_exec' },
+    ]);
+    expect(toolMsg).toContain('gmail');
+    expect(toolMsg).toContain('shell_exec');
+    expect(toolMsg).toContain('empty response');
+
+    // No tools, unknown reason
+    const unknownMsg = buildFallback(undefined, 0, 10, []);
+    expect(unknownMsg).toContain('empty response');
+    expect(unknownMsg).toContain('unknown');
+  });
 });
