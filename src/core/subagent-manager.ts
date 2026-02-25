@@ -36,6 +36,7 @@ export interface SubAgentInfo {
   lastError?: string;
   channelId?: string;
   userId?: string;
+  parentId?: string;
 }
 
 interface SubAgentEntry {
@@ -53,7 +54,7 @@ export class SubAgentManager {
     this.eventBus = eventBus;
   }
 
-  spawn(name: string, task: SubAgentTask, channelId?: string, userId?: string): SubAgentInfo {
+  spawn(name: string, task: SubAgentTask, channelId?: string, userId?: string, parentId?: string): SubAgentInfo {
     const id = crypto.randomUUID();
     const info: SubAgentInfo = {
       id,
@@ -65,6 +66,7 @@ export class SubAgentManager {
       runCount: 0,
       channelId,
       userId,
+      parentId,
     };
 
     const entry: SubAgentEntry = {
@@ -136,11 +138,21 @@ export class SubAgentManager {
   }
 
   /**
-   * Delete (stop and remove) a sub-agent.
+   * Delete (stop and remove) a sub-agent and all its children.
    */
   delete(id: string): void {
     const entry = this.agents.get(id);
     if (!entry) throw new Error(`Sub-agent not found: ${id}`);
+
+    // Cascade delete to all children first
+    const children = Array.from(this.agents.values()).filter(e => e.info.parentId === id);
+    for (const child of children) {
+      try {
+        this.delete(child.info.id);
+      } catch {
+        // Ignore errors during cascade
+      }
+    }
 
     entry.info.status = 'stopped';
     if (entry.timer) {

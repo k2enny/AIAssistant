@@ -17,12 +17,16 @@ import { Orchestrator } from '../core/orchestrator';
 import { OpenRouterClient } from '../llm/openrouter';
 import { IPCServer } from './ipc-server';
 import { SubAgentManager } from '../core/subagent-manager';
+import { SkillManager } from '../core/skill-manager';
+import { TaskManager } from '../core/task-manager';
 import { ShellTool } from '../tools/builtin/shell';
 import { DateTimeTool } from '../tools/builtin/datetime';
 import { PlaywrightTool } from '../tools/builtin/playwright';
 import { GmailTool } from '../tools/builtin/gmail';
 import { SelfAwarenessTool } from '../tools/builtin/self-awareness';
 import { SubAgentTool } from '../tools/builtin/subagent';
+import { SkillTool } from '../tools/builtin/skill';
+import { TaskTool } from '../tools/builtin/task';
 import { ConfigTool } from '../tools/builtin/config';
 import { Message, Logger as ILogger } from '../core/interfaces';
 
@@ -37,6 +41,8 @@ export class Daemon {
   private pluginLoader: PluginLoader;
   private orchestrator: Orchestrator;
   private subAgentManager: SubAgentManager;
+  private skillManager: SkillManager;
+  private taskManager: TaskManager;
   private ipcServer: IPCServer;
   private logger: winston.Logger;
   private homeDir: string;
@@ -48,7 +54,7 @@ export class Daemon {
     this.homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
 
     // Ensure directories exist
-    for (const dir of ['logs', 'data', 'plugins', 'config']) {
+    for (const dir of ['logs', 'data', 'plugins', 'config', 'skills', 'tasks']) {
       const p = path.join(this.homeDir, dir);
       if (!fs.existsSync(p)) {
         fs.mkdirSync(p, { recursive: true });
@@ -94,6 +100,8 @@ export class Daemon {
     this.memoryManager = new MemoryManager(this.storage);
     this.toolRegistry = new ToolRegistry(this.eventBus);
     this.subAgentManager = new SubAgentManager(this.eventBus);
+    this.skillManager = new SkillManager(this.eventBus, path.join(this.homeDir, 'skills'));
+    this.taskManager = new TaskManager(this.eventBus, path.join(this.homeDir, 'tasks'));
 
     const loggerAdapter: ILogger = {
       info: (msg, meta) => this.logger.info(msg, meta),
@@ -144,6 +152,12 @@ export class Daemon {
       await this.memoryManager.initialize();
       this.logger.info('Memory manager initialized');
 
+      // Load persisted skills and tasks
+      this.skillManager.loadFromDisk();
+      this.logger.info(`Skills loaded: ${this.skillManager.list().length}`);
+      this.taskManager.loadFromDisk();
+      this.logger.info(`Tasks loaded: ${this.taskManager.list().length}`);
+
       // Register built-in tools
       this.registerBuiltinTools();
       this.logger.info('Built-in tools registered');
@@ -192,6 +206,9 @@ export class Daemon {
 
     // Stop all sub-agents
     this.subAgentManager.stopAll();
+
+    // Stop all tasks
+    this.taskManager.stopAll();
 
     // Stop channels
     for (const [name, channel] of this.channels) {
@@ -245,6 +262,8 @@ export class Daemon {
       getActiveWorkflows: () => this.orchestrator.getActiveWorkflows().length,
       getUptime: () => process.uptime(),
       getSubAgents: () => this.subAgentManager.list().map(a => ({ id: a.id, name: a.name, description: a.description, status: a.status })),
+      getSkills: () => this.skillManager.list().map(s => ({ id: s.id, name: s.name, description: s.description, useCount: s.useCount })),
+      getTasks: () => this.taskManager.list().map(t => ({ id: t.id, name: t.name, description: t.description, status: t.status, intervalMs: t.intervalMs })),
     });
     this.toolRegistry.register(selfAwareness);
 
@@ -264,6 +283,12 @@ export class Daemon {
       };
     });
     this.toolRegistry.register(subAgentTool);
+
+    // Register skill tool
+    this.toolRegistry.register(new SkillTool(this.skillManager));
+
+    // Register task tool
+    this.toolRegistry.register(new TaskTool(this.taskManager));
   }
 
   private async configureLLM(): Promise<void> {
@@ -412,6 +437,34 @@ export class Daemon {
       this.subAgentManager.delete(params.id);
       return { status: 'ok' };
     });
+
+    // Skill management
+    this.ipcServer.registerHandler('skill_list', async () => {
+      return this.skillManager.list();
+    });
+
+    this.ipcServer.registerHandler('skill_delete', async (params) => {
+      this.skillManager.delete(params.id);
+      return { status: 'ok' };
+    });
+
+    // Task management
+    this.ipcServer.registerHandler('task_list', async () => {
+      return this.taskManager.list();
+    });
+
+    this.ipcServer.registerHandler('task_pause', async (params) => {
+      return this.taskManager.pause(params.id);
+    });
+
+    this.ipcServer.registerHandler('task_resume', async (params) => {
+      return this.taskManager.resume(params.id);
+    });
+
+    this.ipcServer.registerHandler('task_delete', async (params) => {
+      this.taskManager.delete(params.id);
+      return { status: 'ok' };
+    });
   }
 
   private setupEventForwarding(): void {
@@ -440,6 +493,16 @@ export class Daemon {
       Events.SUBAGENT_OUTPUT,
       Events.EMAIL_RECEIVED,
       Events.EMAIL_SENT,
+      Events.SKILL_CREATED,
+      Events.SKILL_EXECUTED,
+      Events.SKILL_DELETED,
+      Events.TASK_CREATED,
+      Events.TASK_STARTED,
+      Events.TASK_PAUSED,
+      Events.TASK_RESUMED,
+      Events.TASK_EXECUTED,
+      Events.TASK_ERROR,
+      Events.TASK_DELETED,
     ];
 
     for (const event of forwardEvents) {

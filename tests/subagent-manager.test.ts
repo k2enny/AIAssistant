@@ -175,4 +175,39 @@ describe('SubAgentManager', () => {
     const updated = manager.get(info.id);
     expect(updated?.lastError).toBe('task boom');
   });
+
+  test('should spawn sub-agent with parentId', () => {
+    const parent = manager.spawn('parent', createMockTask({ intervalMs: 60000 }));
+    const child = manager.spawn('child', createMockTask({ intervalMs: 60000 }), undefined, undefined, parent.id);
+
+    expect(child.parentId).toBe(parent.id);
+  });
+
+  test('should cascade delete to child agents', () => {
+    const parent = manager.spawn('parent', createMockTask({ intervalMs: 60000 }));
+    const child1 = manager.spawn('child1', createMockTask({ intervalMs: 60000 }), undefined, undefined, parent.id);
+    const child2 = manager.spawn('child2', createMockTask({ intervalMs: 60000 }), undefined, undefined, parent.id);
+    const grandchild = manager.spawn('grandchild', createMockTask({ intervalMs: 60000 }), undefined, undefined, child1.id);
+
+    expect(manager.list().length).toBe(4);
+
+    manager.delete(parent.id);
+
+    expect(manager.list().length).toBe(0);
+    expect(manager.get(child1.id)).toBeUndefined();
+    expect(manager.get(child2.id)).toBeUndefined();
+    expect(manager.get(grandchild.id)).toBeUndefined();
+  });
+
+  test('should only delete children of the deleted agent', () => {
+    const agent1 = manager.spawn('agent1', createMockTask({ intervalMs: 60000 }));
+    const agent2 = manager.spawn('agent2', createMockTask({ intervalMs: 60000 }));
+    const child = manager.spawn('child-of-1', createMockTask({ intervalMs: 60000 }), undefined, undefined, agent1.id);
+
+    manager.delete(agent1.id);
+
+    expect(manager.list().length).toBe(1);
+    expect(manager.get(agent2.id)).toBeDefined();
+    expect(manager.get(child.id)).toBeUndefined();
+  });
 });

@@ -23,19 +23,21 @@ export interface SelfAwarenessContext {
   getActiveWorkflows: () => number;
   getUptime: () => number;
   getSubAgents: () => Array<{ id: string; name: string; description: string; status: string }>;
+  getSkills: () => Array<{ id: string; name: string; description: string; useCount: number }>;
+  getTasks: () => Array<{ id: string; name: string; description: string; status: string; intervalMs: number }>;
 }
 
 export class SelfAwarenessTool implements Tool {
   readonly schema: ToolSchema = {
     name: 'self_awareness',
     description:
-      'Introspect the assistant\'s own capabilities, configuration, machine info, connected channels, loaded plugins, running sub-agents, and source code structure. Use this to understand what you can and cannot do.',
+      'Introspect the assistant\'s own capabilities, configuration, machine info, connected channels, loaded plugins, running sub-agents, skills, tasks, and source code structure. Use this to understand what you can and cannot do.',
     parameters: [
       {
         name: 'action',
         type: 'string',
         description:
-          'What to inspect: "capabilities", "config", "machine", "channels", "plugins", "status", "subagents", "code_info"',
+          'What to inspect: "capabilities", "config", "machine", "channels", "plugins", "status", "subagents", "skills", "tasks", "code_info"',
         required: true,
       },
     ],
@@ -61,7 +63,7 @@ export class SelfAwarenessTool implements Tool {
   validate(params: Record<string, any>): { valid: boolean; errors?: string[] } {
     const validActions = [
       'capabilities', 'config', 'machine', 'channels',
-      'plugins', 'status', 'subagents', 'code_info',
+      'plugins', 'status', 'subagents', 'skills', 'tasks', 'code_info',
     ];
     if (!params.action || !validActions.includes(params.action)) {
       return { valid: false, errors: [`action must be one of: ${validActions.join(', ')}`] };
@@ -86,6 +88,10 @@ export class SelfAwarenessTool implements Tool {
           return this.getStatus();
         case 'subagents':
           return this.getSubAgents();
+        case 'skills':
+          return this.getSkills();
+        case 'tasks':
+          return this.getTasks();
         case 'code_info':
           return this.getCodeInfo();
         default:
@@ -109,6 +115,8 @@ export class SelfAwarenessTool implements Tool {
           'New capabilities can be added via plugins (skill SDK).',
           'Gmail integration is available — use the "gmail" tool.',
           'Sub-agents can be spawned for background/async tasks — use the "subagent" tool.',
+          'Skills are reusable coded functions — use the "skill" tool to create and execute them.',
+          'Tasks are periodic coded functions that run on a schedule — use the "task" tool.',
           'Web browsing is available via the "web_browse" (Playwright) tool.',
           'Shell commands can be executed via the "shell_exec" tool.',
         ],
@@ -212,6 +220,8 @@ export class SelfAwarenessTool implements Tool {
         plugins: (this.ctx?.getPlugins() || []).length,
         channels: this.ctx?.getChannels() || [],
         subagents: (this.ctx?.getSubAgents() || []).length,
+        skills: (this.ctx?.getSkills() || []).length,
+        tasks: (this.ctx?.getTasks() || []).length,
         memoryUsage: {
           rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
           heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
@@ -231,6 +241,37 @@ export class SelfAwarenessTool implements Tool {
         notes: [
           'Use the "subagent" tool to spawn, pause, resume, or delete sub-agents.',
           'Sub-agents run asynchronous background tasks (e.g. email watchers).',
+          'Deleting an agent cascades to all its sub-agents.',
+        ],
+      },
+    };
+  }
+
+  private getSkills(): ToolResult {
+    const skills = this.ctx?.getSkills() || [];
+    return {
+      success: true,
+      output: {
+        count: skills.length,
+        skills,
+        notes: [
+          'Use the "skill" tool to create, execute, or delete skills.',
+          'Skills are reusable coded functions (e.g. "fetch website content", "convert currencies").',
+        ],
+      },
+    };
+  }
+
+  private getTasks(): ToolResult {
+    const tasks = this.ctx?.getTasks() || [];
+    return {
+      success: true,
+      output: {
+        count: tasks.length,
+        tasks,
+        notes: [
+          'Use the "task" tool to create, start, pause, resume, or delete periodic tasks.',
+          'Tasks run coded functions on a schedule (e.g. "check emails every 30 seconds").',
         ],
       },
     };
