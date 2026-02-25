@@ -134,6 +134,7 @@ export class SkillManager {
     if (this.toolRegistry) {
       context.tools = this.toolRegistry.getToolbox();
     }
+    context.skills = this.getSkillRunner();
     const result = await fn(params, context);
     skill.useCount++;
     skill.lastUsedAt = new Date();
@@ -155,6 +156,21 @@ export class SkillManager {
       if (s.name === name) return { ...s };
     }
     return undefined;
+  }
+
+  /**
+   * Return a helper object that task/skill code can use to invoke other
+   * skills by name.  Each call returns a Promise with the skill result.
+   *
+   * Example usage inside generated task/skill code:
+   *   const result = await skills['my-skill']({ param1: 'value' });
+   */
+  getSkillRunner(): Record<string, (params?: Record<string, any>) => Promise<any>> {
+    const runner: Record<string, (params?: Record<string, any>) => Promise<any>> = {};
+    for (const skill of this.skills.values()) {
+      runner[skill.name] = (params: Record<string, any> = {}) => this.execute(skill.id, params);
+    }
+    return runner;
   }
 
   delete(id: string): void {

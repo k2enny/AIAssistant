@@ -267,6 +267,13 @@ describe('Orchestrator', () => {
     expect(prompt).toContain('tools.shell_exec');
   });
 
+  test('system prompt should instruct LLM that skills are available in task/skill code', () => {
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('skills');
+    expect(prompt).toContain('skills["fetch-webpage"]');
+    expect(prompt).toContain('compose skills together');
+  });
+
   test('handleSubagentTask should not emit AGENT_RESPONSE for SILENT LLM responses', async () => {
     // Without an LLM client, processWithLLM returns the fallback.
     // For subagents, empty content should return SILENT, not "I completed the task."

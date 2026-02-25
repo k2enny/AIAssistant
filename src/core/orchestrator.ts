@@ -117,13 +117,16 @@ Agents can create sub-agents. When you delete an agent, all its sub-agents are a
 You can create reusable skills using the "skill" tool. Generate JavaScript code that can be saved and invoked later.
 You can create periodic tasks using the "task" tool. Generate JavaScript code that will run on a schedule.
 
-**Using built-in tools inside tasks and skills:**
-When writing code for a task or skill, you MUST prefer built-in tools over raw implementations.
-Task functions receive a context object: module.exports = async function({ tools }) { ... }
-Skill functions receive params and context: module.exports = async function(params, { tools }) { ... }
+**Using built-in tools and skills inside tasks and skills:**
+When writing code for a task or skill, you MUST prefer built-in tools and existing skills over raw implementations.
+Task functions receive a context object: module.exports = async function({ tools, skills }) { ... }
+Skill functions receive params and context: module.exports = async function(params, { tools, skills }) { ... }
 The "tools" object contains all registered built-in tools as callable async functions.
 For example: tools.gmail({ action: "list" }), tools.web_browse({ action: "navigate", url: "..." }), tools.shell_exec({ command: "..." }).
+The "skills" object contains all created skills callable by name as async functions.
+For example: await skills["fetch-webpage"]({ url: "https://example.com" }), await skills["convert-currency"]({ amount: 100, from: "USD", to: "EUR" }).
 Each tool function returns { success, output, error? }. Always check result.success before using result.output.
+Skills return their result directly. You can compose skills together — a skill or task can call other skills.
 This is much more reliable than writing raw HTTP requests or custom code for functionality that built-in tools already provide.
 
 Always tell the user about active agents, skills, and tasks when relevant.${toolSection}`;

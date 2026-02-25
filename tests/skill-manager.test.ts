@@ -171,4 +171,43 @@ describe('SkillManager', () => {
     expect(result.time).toBeDefined();
     expect(result.input).toBe('hello');
   });
+
+  test('should pass skills context so a skill can call another skill', async () => {
+    // Create a helper skill
+    const helperCode = `module.exports = async function(params) { return { doubled: (params.n || 0) * 2 }; };`;
+    const helper = manager.create('doubler', 'Doubles a number', helperCode);
+
+    // Create a skill that calls the helper skill via the skills context
+    const composerCode = `module.exports = async function(params, ctx) {
+      if (!ctx || !ctx.skills || typeof ctx.skills['doubler'] !== 'function') {
+        throw new Error('skills not provided or doubler not found');
+      }
+      const result = await ctx.skills['doubler']({ n: params.value });
+      return { original: params.value, result: result.doubled };
+    };`;
+    const composer = manager.create('double-composer', 'Calls doubler skill', composerCode);
+
+    const result = await manager.execute(composer.id, { value: 5 });
+    expect(result.original).toBe(5);
+    expect(result.result).toBe(10);
+  });
+
+  test('getSkillRunner should return callable functions for all skills', () => {
+    const code = `module.exports = async function(params) { return { ok: true }; };`;
+    manager.create('runner-a', 'Skill A', code);
+    manager.create('runner-b', 'Skill B', code);
+
+    const runner = manager.getSkillRunner();
+    expect(typeof runner['runner-a']).toBe('function');
+    expect(typeof runner['runner-b']).toBe('function');
+  });
+
+  test('getSkillRunner functions should execute skills correctly', async () => {
+    const code = `module.exports = async function(params) { return { sum: (params.x || 0) + (params.y || 0) }; };`;
+    manager.create('adder', 'Adds x and y', code);
+
+    const runner = manager.getSkillRunner();
+    const result = await runner['adder']({ x: 3, y: 7 });
+    expect(result).toEqual({ sum: 10 });
+  });
 });

@@ -214,4 +214,39 @@ describe('TaskManager', () => {
     expect(updated!.lastError).toBeUndefined();
     managerWithTools.stopAll();
   });
+
+  test('should pass skills context to task function when skillManager is provided', async () => {
+    const { SkillManager } = require('../src/core/skill-manager');
+
+    const skillsDir = path.join('/tmp', `aiassistant-test-task-skills-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const skillMgr = new SkillManager(eventBus, skillsDir);
+
+    // Create a skill that the task will call
+    const skillCode = `module.exports = async function(params) { return { tripled: (params.n || 0) * 3 }; };`;
+    skillMgr.create('tripler', 'Triples a number', skillCode);
+
+    const managerWithSkills = new TaskManager(eventBus, tasksDir, undefined, skillMgr);
+
+    const taskCode = `module.exports = async function(ctx) {
+      if (!ctx || !ctx.skills || typeof ctx.skills['tripler'] !== 'function') {
+        throw new Error('skills not provided or tripler not found');
+      }
+      const result = await ctx.skills['tripler']({ n: 4 });
+      if (result.tripled !== 12) throw new Error('unexpected result: ' + JSON.stringify(result));
+    };`;
+
+    const info = managerWithSkills.create('skill-caller', 'Calls tripler skill', taskCode, 50);
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = managerWithSkills.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithSkills.stopAll();
+
+    // cleanup skills dir
+    const fs = require('fs');
+    if (fs.existsSync(skillsDir)) {
+      fs.rmSync(skillsDir, { recursive: true, force: true });
+    }
+  });
 });
