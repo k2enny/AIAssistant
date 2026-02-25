@@ -50,7 +50,7 @@ export class Orchestrator {
    * Build the system prompt dynamically, including the current list of
    * registered tools so the LLM knows exactly what it can use.
    */
-  buildSystemPrompt(): string {
+  buildSystemPrompt(isSubagent: boolean = false): string {
     const tools = this.toolRegistry.getSchemas();
     const toolDescriptions = tools
       .map(t => {
@@ -67,6 +67,16 @@ export class Orchestrator {
     const toolSection = tools.length > 0
       ? `\n\nYou have access to the following tools:\n${toolDescriptions}\n\nUse these tools when appropriate to accomplish tasks.`
       : '\n\nNo tools are currently available.';
+
+    if (isSubagent) {
+      return `You are a background AI subagent running on a periodic schedule.
+Your task is to execute the assigned instructions using the available tools.
+IMPORTANT RULES:
+1. Execute the tools necessary to complete your task. Use as many steps as needed.
+2. If there is new or important information to report to the user, output the message as your final response.
+3. If there is NOTHING new to report or no action needed, you MUST respond exactly with the word "SILENT" (all caps, no other text).
+4. You have access to the history of your previous executions in this thread. Use it to determine if something is "new" (e.g. comparing known email IDs).${toolSection}`;
+    }
 
     return `You are AIAssistant, a helpful AI operator that can plan and execute tasks using available tools.
 You should think step by step, use tools when needed, and always respect the user's instructions. Follow these important rules:
@@ -91,14 +101,73 @@ When the user asks to set up or configure any service, ALWAYS use the "config" t
 When setting config, pass ALL required fields for the namespace in a SINGLE config set call.
 Use config with action "list" to discover what namespaces and fields are available.
 
-You can spawn background sub-agents for asynchronous tasks using the "subagent" tool.
-For example, to watch for new emails and notify on Telegram, spawn an email_watcher sub-agent.
+You can spawn dynamic background sub-agents for asynchronous tasks using the "subagent" tool.
+Provide a clear "prompt" specifying what the sub-agent should do periodically. 
+For example: "Watch my unread emails. If there are new ones since last time, summarize them."
 You can list, pause, resume, and delete sub-agents at any time.
 Always tell the user about active sub-agents when relevant.${toolSection}`;
   }
 
   setLLMClient(client: OpenRouterClient): void {
     this.llmClient = client;
+  }
+
+  async handleSubagentTask(agentId: string, prompt: string, channelId?: string, userId?: string): Promise<void> {
+    channelId = channelId || 'system';
+    userId = userId || 'system';
+
+    let workflow = Array.from(this.workflows.values()).find(w => w.agentId === agentId);
+    if (!workflow) {
+      workflow = {
+        id: crypto.randomUUID(),
+        name: `subagent-${agentId}`,
+        status: 'pending',
+        agentId: agentId,
+        channelId: channelId,
+        userId: userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.workflows.set(workflow.id, workflow);
+      this.eventBus.emit(Events.WORKFLOW_CREATED, { workflow });
+    }
+
+    const memory = this.memoryManager.createMemory(workflow.id);
+    await memory.addMessage('user', prompt, { channelId, userId });
+
+    workflow.status = 'running';
+    workflow.updatedAt = new Date();
+
+    try {
+      const response = await this.processWithLLM(workflow, {
+        id: crypto.randomUUID(),
+        channelId,
+        userId,
+        content: prompt,
+        timestamp: new Date()
+      }, true);
+
+      await memory.addMessage('assistant', response);
+
+      if (response.trim() !== 'SILENT') {
+        this.eventBus.emit(Events.AGENT_RESPONSE, {
+          workflowId: workflow.id,
+          userId: userId,
+          channelId: channelId,
+          content: `[SubAgent Update] ${response}`,
+        });
+      }
+    } catch (err: any) {
+      this.eventBus.emit(Events.AGENT_ERROR, {
+        workflowId: workflow.id,
+        userId: userId,
+        channelId: channelId,
+        error: `Subagent Error: ${err.message}`,
+      });
+    } finally {
+      workflow.status = 'completed';
+      workflow.updatedAt = new Date();
+    }
   }
 
   async handleMessage(message: Message): Promise<string | undefined> {
@@ -152,7 +221,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
     }
   }
 
-  private async processWithLLM(workflow: Workflow, message: Message): Promise<string> {
+  private async processWithLLM(workflow: Workflow, message: Message, isSubagent: boolean = false): Promise<string> {
     if (!this.llmClient) {
       return this.processWithoutLLM(message.content);
     }
@@ -162,7 +231,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
     const tools = this.toolRegistry.getSchemas();
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: this.buildSystemPrompt() },
+      { role: 'system', content: this.buildSystemPrompt(isSubagent) },
     ];
 
     // Add context messages
@@ -340,6 +409,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
   private findWorkflowForUser(userId: string, channelId: string): Workflow | undefined {
     return Array.from(this.workflows.values()).find(
       w => w.userId === userId && w.channelId === channelId &&
+        w.agentId === 'main' &&
         (w.status === 'running' || w.status === 'pending' || w.status === 'paused' || w.status === 'completed')
     );
   }

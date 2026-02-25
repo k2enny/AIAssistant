@@ -248,7 +248,22 @@ export class Daemon {
     });
     this.toolRegistry.register(selfAwareness);
 
-    this.toolRegistry.register(new SubAgentTool(this.subAgentManager));
+    const subAgentTool = new SubAgentTool(this.subAgentManager);
+    subAgentTool.registerTaskType('llm_worker', (config, intervalMs) => {
+      return {
+        description: config.prompt || 'Background LLM worker',
+        intervalMs,
+        execute: async (_signal, context) => {
+          await this.orchestrator.handleSubagentTask(
+            context.agentId,
+            config.prompt,
+            context.channelId,
+            context.userId
+          );
+        },
+      };
+    });
+    this.toolRegistry.register(subAgentTool);
   }
 
   private async configureLLM(): Promise<void> {

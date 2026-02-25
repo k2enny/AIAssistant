@@ -9,6 +9,7 @@ import { Events } from './event-bus';
 export type SubAgentStatus = 'running' | 'paused' | 'stopped' | 'error';
 
 export interface SubAgentContext {
+  agentId: string;
   emitMessage: (msg: string) => void;
   channelId?: string;
   userId?: string;
@@ -177,6 +178,7 @@ export class SubAgentManager {
       entry.abortController = new AbortController();
 
       const context: SubAgentContext = {
+        agentId: entry.info.id,
         channelId: entry.info.channelId,
         userId: entry.info.userId,
         emitMessage: (msg: string) => {

@@ -17,7 +17,7 @@ export class SubAgentTool implements Tool {
   readonly schema: ToolSchema = {
     name: 'subagent',
     description:
-      'Manage background sub-agents that run asynchronous tasks. You can spawn watchers (e.g. email monitors), list running agents, pause, resume, or delete them.',
+      'Manage background sub-agents that run asynchronous tasks. You can spawn watchers (e.g. email monitors), list running agents, pause, resume, or delete them. IMPORTANT: Sub-agents are tied to the main daemon process. Stopping the daemon WILL kill all running sub-agents.',
     parameters: [
       {
         name: 'action',
@@ -44,10 +44,16 @@ export class SubAgentTool implements Tool {
         required: false,
       },
       {
+        name: 'prompt',
+        type: 'string',
+        description: 'Instructions for what the sub-agent should do periodically. Required for "spawn". For example: "Watch for incoming emails from my boss and notify me."',
+        required: false,
+      },
+      {
         name: 'task_type',
         type: 'string',
         description:
-          'Type of background task: "email_watcher" (monitors inbox for new emails). More types can be added via plugins.',
+          'Optional task type. Defaults to "llm_worker" which uses your prompt dynamically. Plugins can add specific types.',
         required: false,
       },
       {
@@ -60,7 +66,7 @@ export class SubAgentTool implements Tool {
       {
         name: 'task_config',
         type: 'object',
-        description: 'Configuration for the task (e.g. search query for email_watcher)',
+        description: 'Additional setup config for specialized task types.',
         required: false,
       },
     ],
@@ -76,8 +82,7 @@ export class SubAgentTool implements Tool {
     this.manager = manager;
     this.taskFactory = new Map();
 
-    // Register built-in task types
-    this.taskFactory.set('email_watcher', this.createEmailWatcherTask.bind(this));
+    // Built-in task types are injected externally by the daemon
   }
 
   /**
@@ -100,7 +105,7 @@ export class SubAgentTool implements Tool {
 
     if (params.action === 'spawn') {
       if (!params.name) errors.push('name is required for spawn action');
-      if (!params.task_type) errors.push('task_type is required for spawn action');
+      if (!params.prompt && params.task_type !== 'email_watcher') errors.push('prompt is required for spawn action');
     }
 
     if (['pause', 'resume', 'delete', 'get'].includes(params.action) && !params.agent_id) {
@@ -140,7 +145,8 @@ export class SubAgentTool implements Tool {
   // ------------------------------------------------------------------
 
   private spawn(params: Record<string, any>, context: ToolContext): ToolResult {
-    const factory = this.taskFactory.get(params.task_type);
+    const taskType = params.task_type || 'llm_worker';
+    const factory = this.taskFactory.get(taskType);
     if (!factory) {
       const available = Array.from(this.taskFactory.keys()).join(', ');
       return {
@@ -151,8 +157,11 @@ export class SubAgentTool implements Tool {
     }
 
     const intervalMs = (params.interval_minutes || 5) * 60 * 1000;
-    const task = factory(params.task_config || {}, intervalMs);
-    task.description = params.description || `${params.task_type} sub-agent`;
+
+    // Pass prompt into config
+    const config = Object.assign({}, params.task_config, { prompt: params.prompt });
+    const task = factory(config, intervalMs);
+    task.description = params.description || params.prompt || `${taskType} sub-agent`;
 
     const info = this.manager.spawn(params.name, task, context.channelId, context.userId);
     return {
@@ -210,39 +219,4 @@ export class SubAgentTool implements Tool {
 
   // ------------------------------------------------------------------
   // Built-in task types
-  // ------------------------------------------------------------------
-
-  private createEmailWatcherTask(config: any, intervalMs: number): SubAgentTask {
-    const query = config.query || 'is:unread';
-    const homeDir =
-      process.env.AIASSISTANT_HOME ||
-      require('path').join(process.env.HOME || '~', '.aiassistant');
-
-    return {
-      description: `Watches Gmail for emails matching: ${query}`,
-      intervalMs,
-      execute: async (_signal: AbortSignal, context: any) => {
-        // This is a stub implementation.  In production this would:
-        // 1. Use GmailTool to search for matching emails
-        // 2. Compare against last-seen message IDs (stored in storage)
-        // 3. Emit events for new emails so the orchestrator can act on them
-        //
-        // For now we just log that the watcher ran.  Full implementation
-        // would integrate with the Gmail tool and event bus.
-        const fs = require('fs');
-        const path = require('path');
-        const logDir = path.join(homeDir, 'logs');
-        if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-
-        const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] email_watcher ran (query: ${query})\n`;
-        fs.appendFileSync(path.join(logDir, 'subagent.log'), logMessage);
-
-        // Output directly back to the user channel
-        if (context && context.emitMessage) {
-          context.emitMessage(`Email watcher ran successfully for query: "${query}"`);
-        }
-      },
-    };
-  }
 }
