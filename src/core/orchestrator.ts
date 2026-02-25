@@ -316,7 +316,22 @@ RULES:
     if (!response.content && isSubagent) {
       return 'SILENT';
     }
-    return response.content || 'I completed the task.';
+
+    // If the LLM returned empty content after tool calls for a user-facing
+    // interaction, ask it once more to produce a proper answer based on the
+    // tool results already in the conversation.
+    if (!response.content && iterations > 0) {
+      messages.push({
+        role: 'user',
+        content: 'Please provide a clear response to my original question based on the tool results above.',
+      });
+      const retry = await this.llmClient.chat(messages, tools);
+      if (retry.content) {
+        return retry.content;
+      }
+    }
+
+    return response.content || 'I processed your request but could not generate a response. Please try again or rephrase your question.';
   }
 
   private async executeToolCall(

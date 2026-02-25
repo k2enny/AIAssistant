@@ -292,4 +292,29 @@ describe('Orchestrator', () => {
     );
     expect(spamMessages).toHaveLength(0);
   });
+
+  test('user messages should never get generic "I completed the task" response', async () => {
+    // Without LLM configured, user messages use processWithoutLLM which has
+    // its own responses. The "I completed the task." fallback should never
+    // appear for user-facing interactions.
+    const responses: any[] = [];
+    eventBus.on(Events.AGENT_RESPONSE, (data) => {
+      responses.push(data);
+    });
+
+    const message: Message = {
+      id: 'test-no-completed',
+      channelId: 'tui',
+      userId: 'user1',
+      content: 'What time is it?',
+      timestamp: new Date(),
+    };
+
+    await orchestrator.handleMessage(message);
+
+    const badMessages = responses.filter(r =>
+      r.content && r.content.includes('I completed the task')
+    );
+    expect(badMessages).toHaveLength(0);
+  });
 });
