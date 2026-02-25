@@ -21,24 +21,35 @@ export class TelegramConnector implements ChannelConnector {
   async initialize(eventBus: EventBusInterface): Promise<void> {
     this.eventBus = eventBus;
 
+    // Catch unhandled errors in handlers so they don't crash the polling
+    // loop.  Telegraf's default error handler re-throws, which terminates
+    // the long-polling loop and makes the bot completely unresponsive.
+    this.bot.catch((err: any) => {
+      console.error(`Telegram connector handler error: ${err.message}`);
+    });
+
     // Register command handlers BEFORE the general text handler.
     // In Telegraf v4 middleware runs in registration order; if bot.on('text')
     // is registered first it matches ALL text messages (including commands)
     // and swallows them before command handlers can run.
     this.bot.command('start', async (ctx) => {
-      await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+      try {
+        await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+      } catch { /* ignore */ }
     });
 
     this.bot.command('status', async (ctx) => {
-      await ctx.reply('🟢 AIAssistant is running.');
+      try { await ctx.reply('🟢 AIAssistant is running.'); } catch { /* ignore */ }
     });
 
     this.bot.command('help', async (ctx) => {
-      await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+      try {
+        await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+      } catch { /* ignore */ }
     });
 
     this.bot.command('new', async (ctx) => {
-      await ctx.reply('🆕 New conversation started.');
+      try { await ctx.reply('🆕 New conversation started.'); } catch { /* ignore */ }
     });
 
     // Handle text messages (after commands so commands are matched first)
@@ -92,17 +103,18 @@ export class TelegramConnector implements ChannelConnector {
       }
     });
 
-    // Start polling
-    this.bot.launch().then(() => {
-      this.connected = true;
-      eventBus.emit(Events.CHANNEL_CONNECTED, { channel: 'telegram' });
-    }).catch((err: any) => {
+    // Start polling – launch() blocks until the polling loop ends so we
+    // must not await it.  The .then/.catch handle the eventual outcome.
+    this.connected = true;
+    eventBus.emit(Events.CHANNEL_CONNECTED, { channel: 'telegram' });
+    this.bot.launch().catch((err: any) => {
       this.connected = false;
+      eventBus.emit(Events.CHANNEL_DISCONNECTED, { channel: 'telegram' });
     });
   }
 
   async shutdown(): Promise<void> {
-    this.bot.stop('Daemon shutdown');
+    try { this.bot.stop('Daemon shutdown'); } catch { /* already stopped */ }
     this.connected = false;
     this.eventBus?.emit(Events.CHANNEL_DISCONNECTED, { channel: 'telegram' });
   }

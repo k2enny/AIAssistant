@@ -329,7 +329,7 @@ export class Daemon {
 
     // Memory management
     this.ipcServer.registerHandler('memory_clear', async (params) => {
-      if (params.workflowId) {
+      if (params?.workflowId) {
         await this.memoryManager.clearWorkflow(params.workflowId);
       } else {
         await this.memoryManager.clearAll();

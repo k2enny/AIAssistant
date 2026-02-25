@@ -6,10 +6,12 @@
 jest.mock('telegraf', () => {
   const handlers: Record<string, Function> = {};
   const commands: Record<string, Function> = {};
+  let errorHandler: Function | null = null;
   return {
     Telegraf: jest.fn().mockImplementation(() => ({
       on: jest.fn((event: string, handler: Function) => { handlers[event] = handler; }),
       command: jest.fn((cmd: string, handler: Function) => { commands[cmd] = handler; }),
+      catch: jest.fn((handler: Function) => { errorHandler = handler; }),
       launch: jest.fn().mockResolvedValue(undefined),
       stop: jest.fn(),
       telegram: {
@@ -18,6 +20,7 @@ jest.mock('telegraf', () => {
       },
       _handlers: handlers,
       _commands: commands,
+      _errorHandler: errorHandler,
     })),
     Context: jest.fn(),
   };
@@ -471,6 +474,68 @@ describe('TelegramClient', () => {
       (c: any[]) => c[0] === 666 && c[1] === 'Test response'
     );
     expect(calls.length).toBe(1);
+
+    await client.stop();
+  });
+
+  test('should register bot.catch() handler to prevent polling crashes', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // bot.catch() should have been called with a function
+    expect(botInstance.catch).toHaveBeenCalledTimes(1);
+    expect(typeof botInstance.catch.mock.calls[0][0]).toBe('function');
+
+    await client.stop();
+  });
+
+  test('should set running=true immediately after start() without blocking', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    expect(client.isRunning()).toBe(false);
+    await client.start();
+    expect(client.isRunning()).toBe(true);
+
+    await client.stop();
+  });
+
+  test('/start command handler should not throw even if ctx.reply fails', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const startHandler = botInstance._commands['start'];
+    const replyMock = jest.fn().mockRejectedValue(new Error('Network error'));
+    const ctx = { reply: replyMock };
+
+    // Should not throw – the handler catches ctx.reply() errors
+    await expect(startHandler(ctx)).resolves.not.toThrow();
+
+    await client.stop();
+  });
+
+  test('/help command handler should not throw even if ctx.reply fails', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const helpHandler = botInstance._commands['help'];
+    const replyMock = jest.fn().mockRejectedValue(new Error('Network error'));
+    const ctx = { reply: replyMock };
+
+    // Should not throw – the handler catches ctx.reply() errors
+    await expect(helpHandler(ctx)).resolves.not.toThrow();
 
     await client.stop();
   });
