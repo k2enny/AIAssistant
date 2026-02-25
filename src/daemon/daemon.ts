@@ -28,6 +28,7 @@ import { SubAgentTool } from '../tools/builtin/subagent';
 import { SkillTool } from '../tools/builtin/skill';
 import { TaskTool } from '../tools/builtin/task';
 import { ConfigTool } from '../tools/builtin/config';
+import { SendMessageTool } from '../tools/builtin/send-message';
 import { Message, Logger as ILogger } from '../core/interfaces';
 
 export class Daemon {
@@ -253,6 +254,7 @@ export class Daemon {
     this.toolRegistry.register(new PlaywrightTool());
     this.toolRegistry.register(new GmailTool());
     this.toolRegistry.register(new ConfigTool(this.vault));
+    this.toolRegistry.register(new SendMessageTool(this.eventBus));
 
     const selfAwareness = new SelfAwarenessTool();
     selfAwareness.setContext({
