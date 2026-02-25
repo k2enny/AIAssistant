@@ -285,6 +285,13 @@ export class TelegramClient {
 
         if (result?.content) {
           await this.sendTelegramMessage(chatId, result.content);
+        } else if (result && !result.content) {
+          // The daemon processed the message but returned no content.
+          // This can happen when the orchestrator encounters an error
+          // (it emits agent:error and returns undefined).  The error
+          // event handler already notifies the user in that case, so
+          // we only send a fallback when no error event was broadcast.
+          await this.sendTelegramMessage(chatId, '⚠️ No response received. Please try again.');
         }
       } catch (err: any) {
         try {
@@ -314,6 +321,10 @@ export class TelegramClient {
 
     this.onEvent('agent:error', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
+        // Skip if the text handler is actively processing — it handles
+        // errors via its own catch block and the fallback above.
+        if (this.activeRequests.has(data.userId)) return;
+
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
           this.sendTelegramMessage(chatId, `❌ Error: ${data.error}`);
