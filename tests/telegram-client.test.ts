@@ -508,17 +508,27 @@ describe('TelegramClient', () => {
     await client.stop();
   });
 
-  test('should fail start() when bot launch fails', async () => {
+  test('should handle bot launch failure without crashing start()', async () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');
 
     const { Telegraf } = require('telegraf');
     const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
-    botInstance.launch.mockRejectedValueOnce(new Error('launch failed'));
 
-    await expect(client.start()).rejects.toThrow('launch failed');
-    expect(client.isRunning()).toBe(false);
-    await client.disconnect();
+    // Create a promise that we can control and wait for its rejection handler
+    let rejectionHandled = false;
+    const launchPromise = Promise.reject(new Error('launch failed'));
+    launchPromise.catch(() => { rejectionHandled = true; });
+    botInstance.launch.mockReturnValueOnce(launchPromise);
+
+    // start() should not throw because launch is unawaited
+    await expect(client.start()).resolves.not.toThrow();
+    expect(client.isRunning()).toBe(true);
+
+    // Yield to let the catch block in start() fire
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    await client.stop();
   });
 
   test('/start command handler should not throw even if ctx.reply fails', async () => {

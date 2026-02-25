@@ -24,6 +24,7 @@ export class TelegramClient {
   private chatMap: Map<string, number> = new Map();
   private launchPromise: Promise<void> | null = null;
   private running = false;
+  private authTimeout: NodeJS.Timeout | null = null;
 
   constructor(botToken: string) {
     this.bot = new Telegraf(botToken);
@@ -40,6 +41,14 @@ export class TelegramClient {
     }
 
     return new Promise((resolve, reject) => {
+      this.authTimeout = setTimeout(() => {
+        if (!this.authenticated && this.socket) {
+          this.socket.destroy();
+          reject(new Error('Timeout waiting for daemon authentication'));
+        }
+      }, 5000);
+      this.authTimeout.unref();
+
       this.socket = net.createConnection(this.socketPath, () => {
         this.sendRaw({
           id: 'auth-0',
@@ -61,6 +70,7 @@ export class TelegramClient {
 
             if (msg.id === 'auth-0' && msg.result?.status === 'authenticated') {
               this.authenticated = true;
+              if (this.authTimeout) clearTimeout(this.authTimeout);
               resolve();
             } else if (msg.id === 'auth-0' && msg.error) {
               reject(new Error(msg.error.message));
@@ -73,6 +83,7 @@ export class TelegramClient {
 
       this.socket.on('error', (err) => {
         if (!this.authenticated) {
+          if (this.authTimeout) clearTimeout(this.authTimeout);
           reject(err);
         }
       });
@@ -84,6 +95,10 @@ export class TelegramClient {
   }
 
   async disconnect(): Promise<void> {
+    if (this.authTimeout) {
+      clearTimeout(this.authTimeout);
+      this.authTimeout = null;
+    }
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
@@ -157,13 +172,9 @@ export class TelegramClient {
     this.setupEventHandlers();
     this.setupBot();
 
-    // Validate the token with a quick API call before launching polling.
-    // getMe() is a lightweight request that fails fast on bad tokens.
-    await this.bot.telegram.getMe();
-
-    // Start long-polling in the background.  Do NOT await – launch()
-    // resolves only after the first successful getUpdates round-trip
-    // which can hang for 30+ seconds or forever on 409 conflicts.
+    // Start long-polling in the background. Do NOT await anything here
+    // that touches the network, as network delays (>30s) will cause the
+    // daemon to think the process failed to start (timeout waiting for PID).
     this.launchPromise = this.bot.launch();
     this.launchPromise.catch((err) => {
       console.error(`Telegram polling error: ${err.message}`);
