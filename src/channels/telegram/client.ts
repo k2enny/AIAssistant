@@ -23,6 +23,7 @@ export class TelegramClient {
   private requestCounter = 0;
   private chatMap: Map<string, number> = new Map();
   private respondedWorkflows: Set<string> = new Set();
+  private launchPromise: Promise<void> | null = null;
   private running = false;
 
   constructor(botToken: string) {
@@ -156,13 +157,23 @@ export class TelegramClient {
     await this.connect();
     this.setupEventHandlers();
     this.setupBot();
-    await this.bot.launch();
+
+    // bot.launch() blocks until the polling loop ends, so we must NOT
+    // await it – otherwise start() would never resolve and the caller
+    // would hang.  We save the promise and attach an error handler so
+    // fatal polling errors (e.g. 401 Unauthorized) are surfaced.
+    this.launchPromise = this.bot.launch();
+    this.launchPromise.catch((err) => {
+      this.running = false;
+      // Surface the error so the caller can observe it
+      console.error(`Telegram bot polling error: ${err.message}`);
+    });
     this.running = true;
   }
 
   async stop(): Promise<void> {
     this.running = false;
-    this.bot.stop('Telegram client shutdown');
+    try { this.bot.stop('Telegram client shutdown'); } catch { /* already stopped */ }
     await this.disconnect();
   }
 
@@ -171,12 +182,24 @@ export class TelegramClient {
   }
 
   private setupBot(): void {
+    // Catch unhandled errors in handlers so they don't crash the polling
+    // loop.  Telegraf's default error handler re-throws, which terminates
+    // the long-polling loop and makes the bot completely unresponsive.
+    this.bot.catch((err: any) => {
+      // Swallow the error so polling continues for subsequent updates.
+      console.error(`Telegram bot handler error: ${err.message}`);
+    });
+
     // Register command handlers BEFORE the general text handler.
     // In Telegraf v4 middleware runs in registration order; if bot.on('text')
     // is registered first it matches ALL text messages (including commands)
     // and swallows them before command handlers can run.
     this.bot.command('start', async (ctx) => {
-      await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+      try {
+        await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+      } catch {
+        // Ignore send failures
+      }
     });
 
     this.bot.command('status', async (ctx) => {
@@ -189,7 +212,7 @@ export class TelegramClient {
           `  Active Workflows: ${status.activeWorkflows}`
         );
       } catch {
-        await ctx.reply('🟢 AIAssistant is running.');
+        try { await ctx.reply('🟢 AIAssistant is running.'); } catch { /* ignore */ }
       }
     });
 
@@ -199,12 +222,16 @@ export class TelegramClient {
         const list = tools.map((t: any) => `• ${t.name}: ${t.description}`).join('\n');
         await ctx.reply(`🔧 Available Tools:\n${list}`);
       } catch {
-        await ctx.reply('❌ Could not retrieve tools list.');
+        try { await ctx.reply('❌ Could not retrieve tools list.'); } catch { /* ignore */ }
       }
     });
 
     this.bot.command('help', async (ctx) => {
-      await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+      try {
+        await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+      } catch {
+        // Ignore send failures
+      }
     });
 
     this.bot.command('new', async (ctx) => {
@@ -212,7 +239,7 @@ export class TelegramClient {
         await this.request('memory_clear');
         await ctx.reply('🆕 New conversation started. Previous context has been cleared.');
       } catch {
-        await ctx.reply('🆕 New conversation started.');
+        try { await ctx.reply('🆕 New conversation started.'); } catch { /* ignore */ }
       }
     });
 
