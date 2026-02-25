@@ -12,6 +12,7 @@ export class TelegramConnector implements ChannelConnector {
   private bot: Telegraf;
   private eventBus: EventBusInterface | null = null;
   private connected = false;
+  private chatMap: Map<string, number> = new Map();
 
   constructor(token: string) {
     this.bot = new Telegraf(token);
@@ -24,30 +25,38 @@ export class TelegramConnector implements ChannelConnector {
     // In Telegraf v4 middleware runs in registration order; if bot.on('text')
     // is registered first it matches ALL text messages (including commands)
     // and swallows them before command handlers can run.
-    this.bot.command('start', (ctx) => {
-      ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+    this.bot.command('start', async (ctx) => {
+      await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
     });
 
-    this.bot.command('status', (ctx) => {
-      ctx.reply('🟢 AIAssistant is running.');
+    this.bot.command('status', async (ctx) => {
+      await ctx.reply('🟢 AIAssistant is running.');
     });
 
-    this.bot.command('help', (ctx) => {
-      ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    this.bot.command('help', async (ctx) => {
+      await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    });
+
+    this.bot.command('new', async (ctx) => {
+      await ctx.reply('🆕 New conversation started.');
     });
 
     // Handle text messages (after commands so commands are matched first)
     this.bot.on('text', async (ctx: Context) => {
       if (!ctx.message || !('text' in ctx.message)) return;
-      
+
+      const userId = ctx.message.from?.id?.toString() || 'unknown';
+      const chatId = ctx.message.chat.id;
+      this.chatMap.set(userId, chatId);
+
       const message: Message = {
         id: crypto.randomUUID(),
         channelId: 'telegram',
-        userId: ctx.message.from?.id?.toString() || 'unknown',
+        userId,
         content: ctx.message.text,
         timestamp: new Date(),
         metadata: {
-          chatId: ctx.message.chat.id,
+          chatId,
           username: ctx.message.from?.username,
           firstName: ctx.message.from?.first_name,
         },
@@ -60,7 +69,10 @@ export class TelegramConnector implements ChannelConnector {
     eventBus.on(Events.AGENT_RESPONSE, async (data) => {
       if (data.channelId === 'telegram' && data.userId) {
         try {
-          await this.sendMessage(data.userId, data.content, data.metadata);
+          const chatId = this.chatMap.get(data.userId);
+          if (chatId !== undefined) {
+            await this.sendMessage(data.userId, data.content, { chatId });
+          }
         } catch (err: any) {
           // Log error but don't crash
         }
@@ -70,7 +82,10 @@ export class TelegramConnector implements ChannelConnector {
     eventBus.on(Events.AGENT_ERROR, async (data) => {
       if (data.channelId === 'telegram' && data.userId) {
         try {
-          await this.sendMessage(data.userId, `❌ Error: ${data.error}`);
+          const chatId = this.chatMap.get(data.userId);
+          if (chatId !== undefined) {
+            await this.sendMessage(data.userId, `❌ Error: ${data.error}`, { chatId });
+          }
         } catch {
           // Ignore
         }
