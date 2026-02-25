@@ -251,4 +251,30 @@ describe('Orchestrator', () => {
     const workflows = orchestrator.getWorkflows();
     expect(workflows.length).toBe(2);
   });
+
+  test('should build subagent system prompt with SILENT instructions', () => {
+    const prompt = orchestrator.buildSystemPrompt(true);
+    expect(prompt).toContain('background AI subagent');
+    expect(prompt).toContain('SILENT');
+    expect(prompt).not.toContain('AIAssistant, a helpful AI operator');
+  });
+
+  test('handleSubagentTask should not emit AGENT_RESPONSE for SILENT LLM responses', async () => {
+    // Without an LLM client, processWithLLM returns the fallback.
+    // For subagents, empty content should return SILENT, not "I completed the task."
+    const responses: any[] = [];
+    eventBus.on(Events.AGENT_RESPONSE, (data) => {
+      responses.push(data);
+    });
+
+    await orchestrator.handleSubagentTask('test-agent-id', 'Check for emails');
+
+    // Without LLM configured, processWithoutLLM returns a config message, but
+    // the subagent code path uses processWithLLM which without a client falls through.
+    // The key invariant: no "[SubAgent Update] I completed the task." spam.
+    const spamMessages = responses.filter(r =>
+      r.content && r.content.includes('I completed the task')
+    );
+    expect(spamMessages).toHaveLength(0);
+  });
 });

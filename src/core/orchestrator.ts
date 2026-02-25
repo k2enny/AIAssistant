@@ -132,23 +132,24 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
       this.eventBus.emit(Events.WORKFLOW_CREATED, { workflow });
     }
 
-    // Subagents must NOT accumulate their own output chatter, otherwise they get stuck in loops
-    // repeating what they did.
+    // Clear previous memory each run so the subagent doesn't accumulate its own
+    // output chatter and get stuck in loops repeating what it said last time.
+    // Tools (e.g. gmail) are responsible for tracking their own state across runs.
     const memory = this.memoryManager.createMemory(workflow.id);
-    // Clear previous memory for this specific run so it only sees the system prompt 
-    // and the tools, avoiding the conversational loop, but we lose state so we must allow tools to carry state.
-    // Instead of completely clearing memory every time, we add explicit instruction to the prompt:
+    await memory.clear();
 
     workflow.status = 'running';
     workflow.updatedAt = new Date();
 
     try {
-      // Just send an empty "wake up" message to trigger the LLM to run its background check
-      const promptToSend = `WAKE UP. It is time to execute your background task. 
+      const promptToSend = `Execute your background task NOW using the available tools.
 YOUR TASK: ${prompt}
 
-If there is nothing new to report, reply ONLY with the word "SILENT". DO NOT say anything else.
-DO NOT repeat previous confirmations. Only report new data you find right now via tools.`;
+RULES:
+- Use tools to check for new data.
+- If you find new, actionable information, report it clearly.
+- If there is NOTHING new to report, respond ONLY with the single word "SILENT".
+- Do NOT confirm that you are running, do NOT say "task completed", do NOT repeat previous information.`;
 
       const response = await this.processWithLLM(workflow, {
         id: crypto.randomUUID(),
@@ -158,17 +159,16 @@ DO NOT repeat previous confirmations. Only report new data you find right now vi
         timestamp: new Date()
       }, true, prompt);
 
-      // Only save to memory and emit if it wasn't silent
-      if (!response.includes('SILENT') && response.trim() !== 'SILENT') {
-        // We only save actual alerts/reports to memory
-        await memory.addMessage('user', promptToSend, { channelId, userId });
-        await memory.addMessage('assistant', response);
+      // Detect "silent" responses — the LLM may say SILENT, "silent", or just whitespace
+      const trimmed = response.trim();
+      const isSilent = trimmed.toUpperCase() === 'SILENT' || trimmed === '';
 
+      if (!isSilent) {
         this.eventBus.emit(Events.AGENT_RESPONSE, {
           workflowId: workflow.id,
           userId: userId,
           channelId: channelId,
-          content: `[SubAgent Update] ${response}`,
+          content: `[SubAgent Update] ${trimmed}`,
         });
       }
     } catch (err: any) {
@@ -287,6 +287,11 @@ DO NOT repeat previous confirmations. Only report new data you find right now vi
       response = await this.llmClient.chat(messages, tools);
     }
 
+    // For subagents, treat empty LLM responses as "nothing to report"
+    // instead of emitting a generic message that would spam the user.
+    if (!response.content && isSubagent) {
+      return 'SILENT';
+    }
     return response.content || 'I completed the task.';
   }
 
