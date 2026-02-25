@@ -160,14 +160,62 @@ export class PlaywrightTool implements Tool {
       return { ...existing, sessionId };
     }
 
-    const browser = await chromium.launch({
-      headless: params.headless !== false,
-    });
+    let browser: Browser;
+    try {
+      browser = await chromium.launch({
+        headless: params.headless !== false,
+      });
+    } catch (err: any) {
+      throw new Error(this.diagnoseBrowserLaunchError(err));
+    }
     const browserContext = await browser.newContext();
     const page = await browserContext.newPage();
     page.setDefaultTimeout(params.timeout || 30000);
     this.sessions.set(sessionId, { browser, context: browserContext, page });
     return { browser, context: browserContext, page, sessionId };
+  }
+
+  /**
+   * Inspect a browser launch error and return a user-friendly message
+   * with actionable fix instructions.
+   */
+  private diagnoseBrowserLaunchError(err: any): string {
+    const msg: string = (err.message || '').toLowerCase();
+
+    // Playwright browsers not installed
+    if (msg.includes('executable doesn\'t exist') || msg.includes('executable doesn\u2019t exist') || msg.includes('no usable browser')) {
+      return (
+        'Playwright browser is not installed. Run the following command to install it:\n' +
+        '  npx playwright install chromium\n\n' +
+        'Then, if on Linux, install required system dependencies with:\n' +
+        '  npx playwright install-deps chromium\n' +
+        '  (or: sudo bash scripts/setup-linux.sh)'
+      );
+    }
+
+    // Missing system libraries (host dependency issue)
+    if ((msg.includes('missing') && msg.includes('librar')) ||
+        msg.includes('shared object') ||
+        msg.includes('error while loading') ||
+        msg.includes('cannot open shared object') ||
+        msg.includes('host system is missing dependencies')) {
+      return (
+        'Browser installed but system libraries are missing. ' +
+        'Install the required dependencies:\n' +
+        '  npx playwright install-deps chromium\n' +
+        '  (or: sudo bash scripts/setup-linux.sh)\n\n' +
+        'Original error: ' + err.message
+      );
+    }
+
+    // Fallback: include generic setup guidance alongside original error
+    return (
+      'Failed to launch browser: ' + err.message + '\n\n' +
+      'Troubleshooting:\n' +
+      '  1. Install browser:      npx playwright install chromium\n' +
+      '  2. Install system deps:  npx playwright install-deps chromium\n' +
+      '  3. Or run setup script:  sudo bash scripts/setup-linux.sh'
+    );
   }
 
   private async navigate(params: Record<string, any>): Promise<ToolResult> {
