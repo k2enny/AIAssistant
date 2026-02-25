@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { EventBusInterface } from './interfaces';
 import { Events } from './event-bus';
+import type { ToolRegistry } from '../tools/registry';
 
 export type TaskStatus = 'running' | 'paused' | 'stopped';
 
@@ -34,10 +35,12 @@ export class TaskManager {
   private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private eventBus: EventBusInterface;
   private tasksDir: string;
+  private toolRegistry?: ToolRegistry;
 
-  constructor(eventBus: EventBusInterface, tasksDir: string) {
+  constructor(eventBus: EventBusInterface, tasksDir: string, toolRegistry?: ToolRegistry) {
     this.eventBus = eventBus;
     this.tasksDir = tasksDir;
+    this.toolRegistry = toolRegistry;
     if (!fs.existsSync(this.tasksDir)) {
       fs.mkdirSync(this.tasksDir, { recursive: true });
     }
@@ -200,7 +203,11 @@ export class TaskManager {
         const mod = require(task.filePath);
         const fn = typeof mod === 'function' ? mod : mod.default || mod.run;
         if (typeof fn === 'function') {
-          await fn();
+          const context: Record<string, any> = {};
+          if (this.toolRegistry) {
+            context.tools = this.toolRegistry.getToolbox();
+          }
+          await fn(context);
         }
         task.runCount++;
         task.lastRunAt = new Date();

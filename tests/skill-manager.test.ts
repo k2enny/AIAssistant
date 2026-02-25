@@ -147,4 +147,28 @@ describe('SkillManager', () => {
     expect(list.length).toBe(2);
     expect(list.map(s => s.name).sort()).toEqual(['persist1', 'persist2']);
   });
+
+  test('should pass tools context to skill function when toolRegistry is provided', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new SkillManager(eventBus, skillsDir, registry);
+
+    const code = `module.exports = async function(params, ctx) {
+      if (!ctx || !ctx.tools || typeof ctx.tools.datetime !== 'function') {
+        throw new Error('tools not provided');
+      }
+      const result = await ctx.tools.datetime({ action: 'now' });
+      if (!result.success) throw new Error('datetime tool failed');
+      return { time: result.output.iso, input: params.msg };
+    };`;
+
+    const info = managerWithTools.create('tools-test', 'Test tools context', code);
+    const result = await managerWithTools.execute(info.id, { msg: 'hello' });
+    expect(result.time).toBeDefined();
+    expect(result.input).toBe('hello');
+  });
 });

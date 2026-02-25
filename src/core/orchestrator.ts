@@ -116,6 +116,16 @@ Agents can create sub-agents. When you delete an agent, all its sub-agents are a
 
 You can create reusable skills using the "skill" tool. Generate JavaScript code that can be saved and invoked later.
 You can create periodic tasks using the "task" tool. Generate JavaScript code that will run on a schedule.
+
+**Using built-in tools inside tasks and skills:**
+When writing code for a task or skill, you MUST prefer built-in tools over raw implementations.
+Task functions receive a context object: module.exports = async function({ tools }) { ... }
+Skill functions receive params and context: module.exports = async function(params, { tools }) { ... }
+The "tools" object contains all registered built-in tools as callable async functions.
+For example: tools.gmail({ action: "list" }), tools.web_browse({ action: "navigate", url: "..." }), tools.shell_exec({ command: "..." }).
+Each tool function returns { success, output, error? }. Always check result.success before using result.output.
+This is much more reliable than writing raw HTTP requests or custom code for functionality that built-in tools already provide.
+
 Always tell the user about active agents, skills, and tasks when relevant.${toolSection}`;
   }
 

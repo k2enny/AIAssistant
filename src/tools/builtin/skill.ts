@@ -18,7 +18,12 @@ export class SkillTool implements Tool {
     description:
       'Manage reusable coded skills. Skills are one-time coded functions that you create and can invoke repeatedly. ' +
       'Use this when the user asks you to create a reusable capability (e.g. "read a website", "convert currencies"). ' +
-      'The code should be a Node.js module that exports a single async function.',
+      'The code should be a Node.js module that exports a single async function. ' +
+      'IMPORTANT: The function receives (params, { tools }) where "tools" is an object ' +
+      'with all built-in tools (e.g. tools.gmail, tools.web_browse, tools.shell_exec). ' +
+      'Always prefer using built-in tools over writing raw implementations. ' +
+      'For example, to send email use: const result = await tools.gmail({ action: "send", to, subject, body }); ' +
+      'Signature: module.exports = async function(params, { tools }) { ... }',
     parameters: [
       {
         name: 'action',

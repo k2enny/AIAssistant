@@ -187,4 +187,31 @@ describe('TaskManager', () => {
     // Tasks loaded from disk should be stopped (not auto-started)
     expect(list.every(t => t.status === 'stopped')).toBe(true);
   });
+
+  test('should pass tools context to task function when toolRegistry is provided', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new TaskManager(eventBus, tasksDir, registry);
+
+    const code = `module.exports = async function(ctx) {
+      if (!ctx || !ctx.tools || typeof ctx.tools.datetime !== 'function') {
+        throw new Error('tools not provided');
+      }
+      const result = await ctx.tools.datetime({ action: 'now' });
+      if (!result.success) throw new Error('datetime tool failed');
+      return result;
+    };`;
+
+    const info = managerWithTools.create('tools-test', 'Test tools context', code, 50);
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = managerWithTools.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithTools.stopAll();
+  });
 });

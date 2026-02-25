@@ -20,7 +20,12 @@ export class TaskTool implements Tool {
     description:
       'Manage periodic coded tasks. Tasks are coded functions that run automatically on a schedule ' +
       '(e.g. "check my emails every 30 seconds and notify me about new ones"). ' +
-      'The code should be a Node.js module that exports a single async function.',
+      'The code should be a Node.js module that exports a single async function. ' +
+      'IMPORTANT: The function receives a context object { tools } where "tools" is an object ' +
+      'with all built-in tools (e.g. tools.gmail, tools.web_browse, tools.shell_exec). ' +
+      'Always prefer using built-in tools over writing raw implementations. ' +
+      'For example, to check emails use: const result = await tools.gmail({ action: "list", max_results: 5 }); ' +
+      'Signature: module.exports = async function({ tools }) { ... }',
     parameters: [
       {
         name: 'action',

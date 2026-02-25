@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { EventBusInterface } from './interfaces';
 import { Events } from './event-bus';
+import type { ToolRegistry } from '../tools/registry';
 
 export interface SkillInfo {
   id: string;
@@ -30,10 +31,12 @@ export class SkillManager {
   private skills: Map<string, SkillInfo> = new Map();
   private eventBus: EventBusInterface;
   private skillsDir: string;
+  private toolRegistry?: ToolRegistry;
 
-  constructor(eventBus: EventBusInterface, skillsDir: string) {
+  constructor(eventBus: EventBusInterface, skillsDir: string, toolRegistry?: ToolRegistry) {
     this.eventBus = eventBus;
     this.skillsDir = skillsDir;
+    this.toolRegistry = toolRegistry;
     if (!fs.existsSync(this.skillsDir)) {
       fs.mkdirSync(this.skillsDir, { recursive: true });
     }
@@ -127,7 +130,11 @@ export class SkillManager {
       throw new Error(`Skill "${skill.name}" does not export a callable function`);
     }
 
-    const result = await fn(params);
+    const context: Record<string, any> = {};
+    if (this.toolRegistry) {
+      context.tools = this.toolRegistry.getToolbox();
+    }
+    const result = await fn(params, context);
     skill.useCount++;
     skill.lastUsedAt = new Date();
     this.eventBus.emit(Events.SKILL_EXECUTED, { id, name: skill.name });

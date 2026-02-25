@@ -259,6 +259,14 @@ describe('Orchestrator', () => {
     expect(prompt).not.toContain('AIAssistant, a helpful AI operator');
   });
 
+  test('system prompt should instruct LLM to use built-in tools in tasks and skills', () => {
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('built-in tools');
+    expect(prompt).toContain('tools.gmail');
+    expect(prompt).toContain('tools.web_browse');
+    expect(prompt).toContain('tools.shell_exec');
+  });
+
   test('handleSubagentTask should not emit AGENT_RESPONSE for SILENT LLM responses', async () => {
     // Without an LLM client, processWithLLM returns the fallback.
     // For subagents, empty content should return SILENT, not "I completed the task."
