@@ -45,6 +45,18 @@ npx esbuild dist/daemon/start.js \
   --external:playwright-core \
   --external:playwright
 
+npx esbuild dist/channels/telegram/start.js \
+  --bundle \
+  --platform=node \
+  --target=node18 \
+  --outfile="$BUILD_DIR/channels/telegram/start.js" \
+  --external:better-sqlite3 \
+  --external:blessed \
+  --external:telegraf \
+  --external:inquirer \
+  --external:playwright-core \
+  --external:playwright
+
 # Copy native dependencies
 echo "  Copying dependencies..."
 cp -r "$PROJECT_DIR/node_modules" "$BUILD_DIR/node_modules" 2>/dev/null || true

@@ -47,6 +47,7 @@ jobs:
           test -x build/aiassistant
           test -f build/cli.js
           test -f build/daemon/start.js
+          test -f build/channels/telegram/start.js
           test -d build/plugins/example-skill
 
       - name: Upload build artifact
