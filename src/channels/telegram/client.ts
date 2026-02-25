@@ -239,6 +239,10 @@ export class TelegramClient {
         // This provides a reliable response path independent of the event flow.
         if (result?.content) {
           if (result.workflowId) {
+            // Cap the dedup set to prevent unbounded growth
+            if (this.respondedWorkflows.size > 1000) {
+              this.respondedWorkflows.clear();
+            }
             this.respondedWorkflows.add(result.workflowId);
           }
           await this.sendTelegramMessage(chatId, result.content);
