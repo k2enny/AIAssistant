@@ -504,6 +504,19 @@ describe('TelegramClient', () => {
     await client.stop();
   });
 
+  test('should fail start() when bot launch fails', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+    botInstance.launch.mockRejectedValueOnce(new Error('launch failed'));
+
+    await expect(client.start()).rejects.toThrow('launch failed');
+    expect(client.isRunning()).toBe(false);
+    await client.disconnect();
+  });
+
   test('/start command handler should not throw even if ctx.reply fails', async () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');

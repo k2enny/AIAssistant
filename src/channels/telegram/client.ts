@@ -158,16 +158,10 @@ export class TelegramClient {
     this.setupEventHandlers();
     this.setupBot();
 
-    // bot.launch() blocks until the polling loop ends, so we must NOT
-    // await it – otherwise start() would never resolve and the caller
-    // would hang.  We save the promise and attach an error handler so
-    // fatal polling errors (e.g. 401 Unauthorized) are surfaced.
+    // Fail fast if polling cannot start so callers don't report "running"
+    // while the bot is actually unable to receive/send messages.
     this.launchPromise = this.bot.launch();
-    this.launchPromise.catch((err) => {
-      this.running = false;
-      // Surface the error so the caller can observe it
-      console.error(`Telegram bot polling error: ${err.message}`);
-    });
+    await this.launchPromise;
     this.running = true;
   }
 
