@@ -170,29 +170,10 @@ export class TelegramClient {
   }
 
   private setupBot(): void {
-    this.bot.on('text', async (ctx: Context) => {
-      if (!ctx.message || !('text' in ctx.message)) return;
-
-      const userId = ctx.message.from?.id?.toString() || 'unknown';
-      const chatId = ctx.message.chat.id;
-
-      this.chatMap.set(userId, chatId);
-
-      try {
-        await this.request('send_message', {
-          content: ctx.message.text,
-          userId,
-          channelId: 'telegram',
-        });
-      } catch (err: any) {
-        try {
-          await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
-        } catch {
-          // Ignore send failures
-        }
-      }
-    });
-
+    // Register command handlers BEFORE the general text handler.
+    // In Telegraf v4 middleware runs in registration order; if bot.on('text')
+    // is registered first it matches ALL text messages (including commands)
+    // and swallows them before command handlers can run.
     this.bot.command('start', (ctx) => {
       ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
     });
@@ -223,6 +204,30 @@ export class TelegramClient {
 
     this.bot.command('help', (ctx) => {
       ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    });
+
+    // General text handler registered AFTER commands so commands are matched first.
+    this.bot.on('text', async (ctx: Context) => {
+      if (!ctx.message || !('text' in ctx.message)) return;
+
+      const userId = ctx.message.from?.id?.toString() || 'unknown';
+      const chatId = ctx.message.chat.id;
+
+      this.chatMap.set(userId, chatId);
+
+      try {
+        await this.request('send_message', {
+          content: ctx.message.text,
+          userId,
+          channelId: 'telegram',
+        });
+      } catch (err: any) {
+        try {
+          await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
+        } catch {
+          // Ignore send failures
+        }
+      }
     });
   }
 

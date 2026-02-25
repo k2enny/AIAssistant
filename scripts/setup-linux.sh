@@ -51,6 +51,11 @@ $SUDO apt-get install -y -qq \
   libcairo2 \
   libasound2 \
   libatspi2.0-0 \
+  libxcursor1 \
+  libgtk-3-0 \
+  libpangocairo-1.0-0 \
+  libcairo-gobject2 \
+  libgdk-pixbuf-2.0-0 \
   2>/dev/null || echo "  ⚠️  Some Playwright deps may not be available on this system"
 
 # Install SQLite
@@ -63,5 +68,9 @@ echo ""
 echo "Next steps:"
 echo "  1. cd to the AIAssistant directory"
 echo "  2. npm install"
-echo "  3. npm run build"
-echo "  4. ./build/aiassistant setup"
+echo "  3. npx playwright install chromium"
+echo "  4. npm run build"
+echo "  5. ./build/aiassistant setup"
+echo ""
+echo "If you still see missing library errors when browsing:"
+echo "  npx playwright install-deps chromium"

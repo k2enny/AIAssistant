@@ -157,4 +157,50 @@ describe('PlaywrightTool', () => {
       expect(result.error).toContain('Unknown action');
     });
   });
+
+  describe('browser launch error handling', () => {
+    let originalLaunch: typeof import('playwright').chromium.launch;
+
+    beforeEach(() => {
+      const { chromium } = require('playwright');
+      originalLaunch = chromium.launch;
+    });
+
+    afterEach(() => {
+      const { chromium } = require('playwright');
+      chromium.launch = originalLaunch;
+    });
+
+    test('should suggest install command when browser executable is missing', async () => {
+      const { chromium } = require('playwright');
+      chromium.launch = jest.fn().mockRejectedValue(new Error("Executable doesn't exist at /root/.cache/ms-playwright/chromium-1208"));
+
+      const errorTool = new PlaywrightTool();
+      const result = await errorTool.execute({ action: 'navigate', url: 'https://example.com' }, context);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('npx playwright install chromium');
+    });
+
+    test('should suggest install-deps when system libraries are missing', async () => {
+      const { chromium } = require('playwright');
+      chromium.launch = jest.fn().mockRejectedValue(new Error("Host system is missing dependencies to run browsers"));
+
+      const errorTool = new PlaywrightTool();
+      const result = await errorTool.execute({ action: 'navigate', url: 'https://example.com' }, context);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('npx playwright install-deps chromium');
+    });
+
+    test('should provide troubleshooting steps for unknown launch errors', async () => {
+      const { chromium } = require('playwright');
+      chromium.launch = jest.fn().mockRejectedValue(new Error("Some unexpected browser error"));
+
+      const errorTool = new PlaywrightTool();
+      const result = await errorTool.execute({ action: 'navigate', url: 'https://example.com' }, context);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Troubleshooting');
+      expect(result.error).toContain('npx playwright install chromium');
+      expect(result.error).toContain('npx playwright install-deps chromium');
+    });
+  });
 });

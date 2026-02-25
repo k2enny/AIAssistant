@@ -20,7 +20,23 @@ export class TelegramConnector implements ChannelConnector {
   async initialize(eventBus: EventBusInterface): Promise<void> {
     this.eventBus = eventBus;
 
-    // Handle text messages
+    // Register command handlers BEFORE the general text handler.
+    // In Telegraf v4 middleware runs in registration order; if bot.on('text')
+    // is registered first it matches ALL text messages (including commands)
+    // and swallows them before command handlers can run.
+    this.bot.command('start', (ctx) => {
+      ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+    });
+
+    this.bot.command('status', (ctx) => {
+      ctx.reply('🟢 AIAssistant is running.');
+    });
+
+    this.bot.command('help', (ctx) => {
+      ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    });
+
+    // Handle text messages (after commands so commands are matched first)
     this.bot.on('text', async (ctx: Context) => {
       if (!ctx.message || !('text' in ctx.message)) return;
       
@@ -38,19 +54,6 @@ export class TelegramConnector implements ChannelConnector {
       };
 
       this.eventBus?.emit(Events.MESSAGE_RECEIVED, message);
-    });
-
-    // Handle commands
-    this.bot.command('start', (ctx) => {
-      ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
-    });
-
-    this.bot.command('status', (ctx) => {
-      ctx.reply('🟢 AIAssistant is running.');
-    });
-
-    this.bot.command('help', (ctx) => {
-      ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
     });
 
     // Listen for agent responses
