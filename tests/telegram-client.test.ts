@@ -73,22 +73,20 @@ describe('TelegramClient', () => {
 
             // Handle send_message
             if (msg.method === 'send_message') {
+              // Real daemon: the orchestrator emits the agent:response
+              // event synchronously BEFORE the IPC response is sent.
+              const event = {
+                id: crypto.randomUUID(),
+                event: 'agent:response',
+                data: {
+                  workflowId: 'wf-1',
+                  channelId: msg.params.channelId || 'tui',
+                  userId: msg.params.userId,
+                  content: 'Test response',
+                },
+              };
+              socket.write(JSON.stringify(event) + '\n');
               socket.write(JSON.stringify({ id: msg.id, result: { status: 'ok', workflowId: 'wf-1', content: 'Test response' } }) + '\n');
-
-              // Simulate agent response after a short delay
-              setTimeout(() => {
-                const event = {
-                  id: crypto.randomUUID(),
-                  event: 'agent:response',
-                  data: {
-                    workflowId: 'wf-1',
-                    channelId: msg.params.channelId || 'tui',
-                    userId: msg.params.userId,
-                    content: 'Test response',
-                  },
-                };
-                socket.write(JSON.stringify(event) + '\n');
-              }, 50);
               continue;
             }
 
@@ -329,18 +327,12 @@ describe('TelegramClient', () => {
 
     await textHandler(mockCtx);
 
-    // The request is fire-and-forget; allow IPC write to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
-
     // Verify the message was sent to daemon
     const sendReq = receivedRequests.find(r => r.method === 'send_message');
     expect(sendReq).toBeDefined();
     expect(sendReq.params.content).toBe('hello world');
     expect(sendReq.params.userId).toBe('789');
     expect(sendReq.params.channelId).toBe('telegram');
-
-    // Wait for the agent:response event to be processed
-    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Verify response was sent back to Telegram
     expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(
@@ -418,7 +410,6 @@ describe('TelegramClient', () => {
     await textHandler(mockCtx);
 
     expect(mockCtx.sendChatAction).toHaveBeenCalledWith('typing');
-    await new Promise(resolve => setTimeout(resolve, 100));
 
     await client.stop();
   });
@@ -443,8 +434,7 @@ describe('TelegramClient', () => {
 
     await textHandler(mockCtx);
 
-    // Response should arrive through agent:response event routing
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Response is now sent directly from the IPC result
     expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(444, 'Test response');
 
     await client.stop();
@@ -470,10 +460,8 @@ describe('TelegramClient', () => {
 
     await textHandler(mockCtx);
 
-    // Wait for the event to arrive
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    // Should only send one response for this message
+    // Should only send one response for this message (the broadcast
+    // event is suppressed because activeRequests tracks the user).
     const calls = botInstance.telegram.sendMessage.mock.calls.filter(
       (c: any[]) => c[0] === 666 && c[1] === 'Test response'
     );
