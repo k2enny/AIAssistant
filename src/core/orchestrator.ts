@@ -102,6 +102,7 @@ If the user asks what you can do, use self_awareness with action "capabilities".
 If the user asks about your config or setup, use self_awareness with action "config".
 
 You can manage Gmail email (send, read, list, search) using the "gmail" tool.
+You can send a message to any connected channel (telegram, tui) using the "send_message" tool. Use this when you need to proactively notify the user on a specific channel.
 To configure ANY tool or service (Gmail, Telegram, OpenRouter, etc.), use the "config" tool.
 Use config with action "status" to check which services are configured, and action "set" with the appropriate namespace and values to configure them.
 When the user asks to set up or configure any service, ALWAYS use the "config" tool — never try to configure tools directly.
@@ -286,7 +287,7 @@ RULES:
 
     // Handle tool calls
     let iterations = 0;
-    const maxIterations = 10;
+    const maxIterations = 25;
 
     while (response.toolCalls && response.toolCalls.length > 0 && iterations < maxIterations) {
       iterations++;
@@ -325,7 +326,9 @@ RULES:
         role: 'user',
         content: 'Please provide a clear response to my original question based on the tool results above.',
       });
-      const retry = await this.llmClient.chat(messages, tools);
+      // Do NOT pass tools on the retry so the LLM produces a text answer
+      // instead of entering another tool-call loop.
+      const retry = await this.llmClient.chat(messages);
       if (retry.content) {
         return retry.content;
       }

@@ -323,9 +323,9 @@ describe('Orchestrator', () => {
     const buildFallback = (orchestrator as any).buildFallbackMessage.bind(orchestrator);
 
     // Max iterations reached
-    const maxIterMsg = buildFallback('stop', 10, 10, []);
+    const maxIterMsg = buildFallback('stop', 25, 25, []);
     expect(maxIterMsg).toContain('too many steps');
-    expect(maxIterMsg).toContain('10 tool calls');
+    expect(maxIterMsg).toContain('25 tool calls');
 
     // Token limit hit
     const lengthMsg = buildFallback('length', 0, 10, []);
