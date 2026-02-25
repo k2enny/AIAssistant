@@ -25,6 +25,7 @@ export class TelegramClient {
   private launchPromise: Promise<void> | null = null;
   private running = false;
   private authTimeout: NodeJS.Timeout | null = null;
+  private activeRequests: Set<string> = new Set();
 
   constructor(botToken: string) {
     this.bot = new Telegraf(botToken);
@@ -263,30 +264,43 @@ export class TelegramClient {
 
       this.chatMap.set(userId, chatId);
 
+      // Track that we're actively handling this user's message so the
+      // agent:response event handler doesn't send a duplicate reply.
+      this.activeRequests.add(userId);
+
       try {
         // Send typing indicator so the user knows the bot received the message
         await ctx.sendChatAction('typing');
 
-        // Fire-and-forget: rely on the agent:response event for final output.
-        // This avoids duplicate replies and avoids surfacing request timeouts
-        // during long-running workflows.
-        this.request('send_message', {
+        // Await the IPC response and use its content to reply directly.
+        // Previously this was fire-and-forget, relying solely on the
+        // agent:response broadcast event — which could be lost if the
+        // IPC broadcast didn't reach the client, leaving users with no
+        // reply at all.
+        const result = await this.request('send_message', {
           content: ctx.message.text,
           userId,
           channelId: 'telegram',
-        }).catch(async (err: any) => {
-          try {
-            await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
-          } catch {
-            // Ignore send failures
-          }
         });
+
+        if (result?.content) {
+          await this.sendTelegramMessage(chatId, result.content);
+        } else if (result && !result.content) {
+          // The daemon processed the message but returned no content.
+          // This can happen when the orchestrator encounters an error
+          // (it emits agent:error and returns undefined).  The error
+          // event handler already notifies the user in that case, so
+          // we only send a fallback when no error event was broadcast.
+          await this.sendTelegramMessage(chatId, '⚠️ No response received. Please try again.');
+        }
       } catch (err: any) {
         try {
           await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
         } catch {
           // Ignore send failures
         }
+      } finally {
+        this.activeRequests.delete(userId);
       }
     });
   }
@@ -294,6 +308,10 @@ export class TelegramClient {
   private setupEventHandlers(): void {
     this.onEvent('agent:response', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
+        // Skip if the text handler is already sending a direct reply for
+        // this user — avoids duplicate messages.
+        if (this.activeRequests.has(data.userId)) return;
+
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
           this.sendTelegramMessage(chatId, data.content);
@@ -303,6 +321,10 @@ export class TelegramClient {
 
     this.onEvent('agent:error', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
+        // Skip if the text handler is actively processing — it handles
+        // errors via its own catch block and the fallback above.
+        if (this.activeRequests.has(data.userId)) return;
+
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
           this.sendTelegramMessage(chatId, `❌ Error: ${data.error}`);
