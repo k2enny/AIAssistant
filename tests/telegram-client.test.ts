@@ -254,6 +254,89 @@ describe('TelegramClient', () => {
     expect(result.daemon).toBe(true);
   });
 
+  test('should register command handlers before text handler', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    // Access the mock bot via the Telegraf constructor
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // command() should have been called before on('text')
+    const commandCalls = botInstance.command.mock.invocationCallOrder;
+    const onCalls = botInstance.on.mock.invocationCallOrder;
+
+    // All command registrations should come before the text handler registration
+    const lastCommandOrder = Math.max(...commandCalls);
+    const firstOnOrder = Math.min(...onCalls);
+    expect(lastCommandOrder).toBeLessThan(firstOnOrder);
+
+    await client.stop();
+  });
+
+  test('should invoke command handler directly for /start', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // Invoke the /start command handler
+    const replyMock = jest.fn().mockResolvedValue(undefined);
+    const ctx = { reply: replyMock };
+    const startHandler = botInstance._commands['start'];
+    expect(startHandler).toBeDefined();
+    await startHandler(ctx);
+
+    expect(replyMock).toHaveBeenCalledTimes(1);
+    expect(replyMock.mock.calls[0][0]).toContain('AIAssistant is ready');
+
+    await client.stop();
+  });
+
+  test('should send text messages to daemon via IPC and receive response', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // Simulate a text message arriving via the bot
+    const textHandler = botInstance._handlers['text'];
+    expect(textHandler).toBeDefined();
+
+    const mockCtx = {
+      message: {
+        text: 'hello world',
+        from: { id: 789, username: 'testuser', first_name: 'Test' },
+        chat: { id: 101112 },
+      },
+    };
+
+    await textHandler(mockCtx);
+
+    // Verify the message was sent to daemon
+    const sendReq = receivedRequests.find(r => r.method === 'send_message');
+    expect(sendReq).toBeDefined();
+    expect(sendReq.params.content).toBe('hello world');
+    expect(sendReq.params.userId).toBe('789');
+    expect(sendReq.params.channelId).toBe('telegram');
+
+    // Wait for the agent:response event to be processed
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Verify response was sent back to Telegram
+    expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(
+      101112,
+      'Test response'
+    );
+
+    await client.stop();
+  });
+
   test('testConnection should report daemon error when daemon is unreachable', async () => {
     // Point to a non-existent socket
     const badHome = `/tmp/aiassistant-test-conn-${Date.now()}`;
