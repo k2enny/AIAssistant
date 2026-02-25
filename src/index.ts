@@ -19,6 +19,7 @@ import { spawn, execSync } from 'child_process';
 
 const HOME_DIR = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
 const PID_FILE = path.join(HOME_DIR, 'daemon.pid');
+const TELEGRAM_PID_FILE = path.join(HOME_DIR, 'telegram.pid');
 
 const program = new Command();
 
@@ -203,50 +204,72 @@ program
   });
 
 // ============ telegram ============
-program
+const telegramCmd = program
   .command('telegram')
-  .description('Start Telegram bot channel (connects to running daemon via IPC)')
+  .description('Telegram bot channel management');
+
+telegramCmd
+  .command('start')
+  .description('Start Telegram bot channel in background')
   .action(async () => {
     if (!isDaemonRunning()) {
       console.log('🔴 Daemon is not running. Start it with: ./aiassistant start');
       process.exit(1);
     }
-
-    // Load Telegram bot token from vault
-    const { Vault } = require('./security/vault');
-    const vault = new Vault(HOME_DIR);
-    await vault.initialize();
-    const token = await vault.getSecret('telegram_bot_token');
-
-    if (!token) {
-      console.error('❌ Telegram bot token not configured. Run setup first: ./aiassistant setup');
-      process.exit(1);
+    if (isTelegramRunning()) {
+      console.log('✅ Telegram bot is already running (PID: ' + readTelegramPid() + ')');
+      return;
     }
+    await startTelegramBot();
+    console.log('✅ Telegram bot started');
+  });
 
+telegramCmd
+  .command('stop')
+  .description('Stop Telegram bot channel')
+  .action(async () => {
+    const pid = readTelegramPid();
+    if (!pid) {
+      console.log('ℹ️  Telegram bot is not running');
+      return;
+    }
     try {
-      const { TelegramClient } = require('./channels/telegram/client');
-      const client = new TelegramClient(token);
+      process.kill(pid, 'SIGTERM');
+      console.log(`🛑 Stopping Telegram bot (PID: ${pid})...`);
 
-      const shutdown = async () => {
-        console.log('\n🛑 Stopping Telegram bot...');
+      for (let i = 0; i < 30; i++) {
+        await sleep(500);
         try {
-          await client.stop();
-        } catch (err: any) {
-          console.error(`⚠️ Error during shutdown: ${err.message}`);
+          process.kill(pid, 0);
+        } catch {
+          console.log('✅ Telegram bot stopped');
+          return;
         }
-        process.exit(0);
-      };
+      }
 
-      process.on('SIGINT', shutdown);
-      process.on('SIGTERM', shutdown);
-
-      console.log('🤖 Starting Telegram bot channel...');
-      await client.start();
-      console.log('✅ Telegram bot is running. Press Ctrl+C to stop.');
-    } catch (err: any) {
-      console.error(`❌ Failed to start Telegram bot: ${err.message}`);
-      process.exit(1);
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Already dead
+      }
+      console.log('✅ Telegram bot stopped (forced)');
+    } catch {
+      console.log('ℹ️  Telegram bot is not running (stale PID file)');
+      if (fs.existsSync(TELEGRAM_PID_FILE)) {
+        fs.unlinkSync(TELEGRAM_PID_FILE);
+      }
     }
+  });
+
+telegramCmd
+  .command('status')
+  .description('Show Telegram bot status')
+  .action(async () => {
+    if (isTelegramRunning()) {
+      console.log('🟢 Telegram bot is running (PID: ' + readTelegramPid() + ')');
+      return;
+    }
+    console.log('🔴 Telegram bot is not running');
   });
 
 // ============ test-telegram ============
@@ -485,6 +508,66 @@ function readPid(): number | null {
   } catch {
     return null;
   }
+}
+
+function isTelegramRunning(): boolean {
+  const pid = readTelegramPid();
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    if (fs.existsSync(TELEGRAM_PID_FILE)) {
+      try { fs.unlinkSync(TELEGRAM_PID_FILE); } catch {}
+    }
+    return false;
+  }
+}
+
+function readTelegramPid(): number | null {
+  if (!fs.existsSync(TELEGRAM_PID_FILE)) return null;
+  try {
+    return parseInt(fs.readFileSync(TELEGRAM_PID_FILE, 'utf-8').trim(), 10);
+  } catch {
+    return null;
+  }
+}
+
+async function startTelegramBot(): Promise<void> {
+  const entryScript = path.join(__dirname, 'channels', 'telegram', 'start.js');
+
+  const logsDir = path.join(HOME_DIR, 'logs');
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
+
+  const out = fs.openSync(path.join(logsDir, 'telegram-stdout.log'), 'a');
+  const err = fs.openSync(path.join(logsDir, 'telegram-stderr.log'), 'a');
+
+  const child = spawn(process.execPath, [entryScript], {
+    detached: true,
+    stdio: ['ignore', out, err],
+    env: { ...process.env, AIASSISTANT_HOME: HOME_DIR },
+  });
+
+  let earlyExit = false;
+  let exitCode: number | null = null;
+  child.on('exit', (code) => {
+    earlyExit = true;
+    exitCode = code;
+  });
+
+  child.unref();
+
+  for (let i = 0; i < 60; i++) {
+    await sleep(500);
+    if (earlyExit) {
+      throw new Error(`Telegram process exited with code ${exitCode} during startup.`);
+    }
+    if (fs.existsSync(TELEGRAM_PID_FILE)) return;
+  }
+
+  throw new Error('Telegram bot failed to start (timeout waiting for PID file)');
 }
 
 async function startDaemon(): Promise<void> {

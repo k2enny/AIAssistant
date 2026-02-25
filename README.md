@@ -87,8 +87,14 @@ node dist/index.js status
 # Open interactive TUI (type 'quit' to exit, daemon stays running)
 node dist/index.js tui
 
-# Start Telegram bot channel (connects to daemon via IPC)
-node dist/index.js telegram
+# Start Telegram bot channel in background (connects to daemon via IPC)
+node dist/index.js telegram start
+
+# Check Telegram bot status
+node dist/index.js telegram status
+
+# Stop Telegram bot channel
+node dist/index.js telegram stop
 
 # Stop daemon
 node dist/index.js stop
