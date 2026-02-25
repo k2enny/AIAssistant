@@ -132,24 +132,26 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
       this.eventBus.emit(Events.WORKFLOW_CREATED, { workflow });
     }
 
+    // Do NOT add the prompt to memory as a user message every time it runs.
+    // Instead, just pass it via the system prompt (which now takes the schedule prompt).
     const memory = this.memoryManager.createMemory(workflow.id);
-    await memory.addMessage('user', prompt, { channelId, userId });
 
     workflow.status = 'running';
     workflow.updatedAt = new Date();
 
     try {
+      // Just send an empty "wake up" message to trigger the LLM to run its background check
       const response = await this.processWithLLM(workflow, {
         id: crypto.randomUUID(),
         channelId,
         userId,
-        content: prompt,
+        content: '<WAKE>',
         timestamp: new Date()
-      }, true);
+      }, true, prompt);
 
-      await memory.addMessage('assistant', response);
-
+      // Only save to memory if it wasn't silent
       if (response.trim() !== 'SILENT') {
+        await memory.addMessage('assistant', response);
         this.eventBus.emit(Events.AGENT_RESPONSE, {
           workflowId: workflow.id,
           userId: userId,
@@ -221,7 +223,7 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
     }
   }
 
-  private async processWithLLM(workflow: Workflow, message: Message, isSubagent: boolean = false): Promise<string> {
+  private async processWithLLM(workflow: Workflow, message: Message, isSubagent: boolean = false, subagentPrompt?: string): Promise<string> {
     if (!this.llmClient) {
       return this.processWithoutLLM(message.content);
     }
@@ -230,8 +232,13 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
     const context = await memory.getContext();
     const tools = this.toolRegistry.getSchemas();
 
+    let sysPrompt = this.buildSystemPrompt(isSubagent);
+    if (isSubagent && subagentPrompt) {
+      sysPrompt += `\n\nYOUR ASSIGNED TASK:\n${subagentPrompt}`;
+    }
+
     const messages: LLMMessage[] = [
-      { role: 'system', content: this.buildSystemPrompt(isSubagent) },
+      { role: 'system', content: sysPrompt },
     ];
 
     // Add context messages
