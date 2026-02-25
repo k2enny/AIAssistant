@@ -31,6 +31,12 @@ describe('SelfAwarenessTool', () => {
     getSubAgents: () => [
       { id: 'sa-1', name: 'email-watcher', description: 'Watches email', status: 'running' },
     ],
+    getSkills: () => [
+      { id: 'sk-1', name: 'fetch-url', description: 'Fetches a URL', useCount: 3 },
+    ],
+    getTasks: () => [
+      { id: 'tk-1', name: 'check-email', description: 'Check emails', status: 'running', intervalMs: 30000 },
+    ],
   };
 
   beforeEach(() => {

@@ -114,6 +114,20 @@ export const Events = {
   SUBAGENT_ERROR: 'subagent:error',
   SUBAGENT_OUTPUT: 'subagent:output',
 
+  // Skill events
+  SKILL_CREATED: 'skill:created',
+  SKILL_EXECUTED: 'skill:executed',
+  SKILL_DELETED: 'skill:deleted',
+
+  // Task events
+  TASK_CREATED: 'task:created',
+  TASK_STARTED: 'task:started',
+  TASK_PAUSED: 'task:paused',
+  TASK_RESUMED: 'task:resumed',
+  TASK_EXECUTED: 'task:executed',
+  TASK_ERROR: 'task:error',
+  TASK_DELETED: 'task:deleted',
+
   // Email events
   EMAIL_RECEIVED: 'email:received',
   EMAIL_SENT: 'email:sent',
