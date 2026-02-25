@@ -210,4 +210,30 @@ describe('SkillManager', () => {
     const result = await runner['adder']({ x: 3, y: 7 });
     expect(result).toEqual({ sum: 10 });
   });
+
+  test('should allow a skill to use a built-in tool AND call another skill together', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new SkillManager(eventBus, skillsDir, registry);
+
+    // Create a helper skill
+    const helperCode = `module.exports = async function(params) { return { prefix: 'Time is' }; };`;
+    managerWithTools.create('get-prefix', 'Returns a prefix', helperCode);
+
+    // Create a skill that uses BOTH a built-in tool AND another skill
+    const composerCode = `module.exports = async function(params, { tools, skills }) {
+      const timeResult = await tools.datetime({ action: 'now' });
+      if (!timeResult.success) throw new Error('datetime tool failed');
+      const prefixResult = await skills['get-prefix']({});
+      return { message: prefixResult.prefix + ': ' + timeResult.output.iso };
+    };`;
+    const composer = managerWithTools.create('time-message', 'Combines skill + tool', composerCode);
+
+    const result = await managerWithTools.execute(composer.id, {});
+    expect(result.message).toMatch(/^Time is: \d{4}-/);
+  });
 });

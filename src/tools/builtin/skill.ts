@@ -54,7 +54,8 @@ export class SkillTool implements Tool {
         name: 'code',
         type: 'string',
         description:
-          'The Node.js code for the skill (for "create"). Must export a function: module.exports = async function(params) { ... }',
+          'The Node.js code for the skill (for "create"). Must export a function: module.exports = async function(params, { tools, skills }) { ... }. ' +
+          'The "tools" object has built-in tools (e.g. tools.gmail, tools.shell_exec). The "skills" object has other skills callable by name.',
         required: false,
       },
       {

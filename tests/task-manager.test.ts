@@ -249,4 +249,44 @@ describe('TaskManager', () => {
       fs.rmSync(skillsDir, { recursive: true, force: true });
     }
   });
+
+  test('should allow a task to use both tools and skills together (integration)', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+    const { SkillManager } = require('../src/core/skill-manager');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const skillsDir2 = path.join('/tmp', `aiassistant-test-task-integ-skills-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const skillMgr = new SkillManager(eventBus, skillsDir2, registry);
+
+    // Create a skill that formats a timestamp
+    const skillCode = `module.exports = async function(params) { return { formatted: 'Checked at ' + params.time }; };`;
+    skillMgr.create('format-time', 'Formats a timestamp', skillCode);
+
+    const managerWithAll = new TaskManager(eventBus, tasksDir, registry, skillMgr);
+
+    // Task that gets time from a tool, then passes it to a skill
+    const taskCode = `module.exports = async function({ tools, skills }) {
+      const timeResult = await tools.datetime({ action: 'now' });
+      if (!timeResult.success) throw new Error('datetime tool failed');
+      const formatted = await skills['format-time']({ time: timeResult.output.iso });
+      if (!formatted.formatted.startsWith('Checked at ')) throw new Error('skill failed: ' + JSON.stringify(formatted));
+    };`;
+
+    const info = managerWithAll.create('full-chain', 'Tool → Skill chain', taskCode, 50);
+    await new Promise(r => setTimeout(r, 250));
+
+    const updated = managerWithAll.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithAll.stopAll();
+
+    // cleanup
+    const fsmod = require('fs');
+    if (fsmod.existsSync(skillsDir2)) {
+      fsmod.rmSync(skillsDir2, { recursive: true, force: true });
+    }
+  });
 });
