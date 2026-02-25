@@ -106,6 +106,19 @@ export const Events = {
   CHANNEL_CONNECTED: 'channel:connected',
   CHANNEL_DISCONNECTED: 'channel:disconnected',
   
+  // Sub-agent events
+  SUBAGENT_SPAWNED: 'subagent:spawned',
+  SUBAGENT_STOPPED: 'subagent:stopped',
+  SUBAGENT_PAUSED: 'subagent:paused',
+  SUBAGENT_RESUMED: 'subagent:resumed',
+  SUBAGENT_ERROR: 'subagent:error',
+  SUBAGENT_OUTPUT: 'subagent:output',
+
+  // Email events
+  EMAIL_RECEIVED: 'email:received',
+  EMAIL_SENT: 'email:sent',
+  EMAIL_ERROR: 'email:error',
+
   // System events
   DAEMON_STARTED: 'daemon:started',
   DAEMON_STOPPING: 'daemon:stopping',

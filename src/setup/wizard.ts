@@ -95,6 +95,58 @@ export class SetupWizard {
     } else {
       console.log('  ℹ️  No Telegram token. Telegram integration disabled.');
     }
+
+    // Gmail OAuth2
+    console.log('\n📧 Gmail Configuration\n');
+    console.log('  To use Gmail, you need a Google Cloud project with the Gmail API enabled.');
+    console.log('  Create OAuth2 credentials and obtain a refresh token.');
+    console.log('  See: https://developers.google.com/gmail/api/quickstart\n');
+
+    const gmailCredPath = path.join(this.homeDir, 'config', 'gmail-credentials.json');
+    const existingGmail = fs.existsSync(gmailCredPath);
+
+    const gmailMsg = existingGmail
+      ? 'Gmail client ID (press enter to keep existing)'
+      : 'Gmail OAuth2 client ID (press enter to skip)';
+
+    const { gmailClientId } = await inquirer.prompt([{
+      type: 'input',
+      name: 'gmailClientId',
+      message: gmailMsg,
+    }]);
+
+    if (gmailClientId) {
+      const { gmailClientSecret } = await inquirer.prompt([{
+        type: 'password',
+        name: 'gmailClientSecret',
+        message: 'Gmail OAuth2 client secret:',
+        mask: '*',
+      }]);
+      const { gmailRefreshToken } = await inquirer.prompt([{
+        type: 'password',
+        name: 'gmailRefreshToken',
+        message: 'Gmail OAuth2 refresh token:',
+        mask: '*',
+      }]);
+
+      if (gmailClientSecret && gmailRefreshToken) {
+        const configDir = path.join(this.homeDir, 'config');
+        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(gmailCredPath, JSON.stringify({
+          client_id: gmailClientId,
+          client_secret: gmailClientSecret,
+          refresh_token: gmailRefreshToken,
+        }, null, 2), { mode: 0o600 });
+        console.log('  ✅ Gmail OAuth2 credentials saved');
+      } else {
+        console.log('  ⚠️  Incomplete Gmail credentials. Gmail integration disabled.');
+      }
+    } else if (existingGmail) {
+      console.log('  ✅ Keeping existing Gmail credentials');
+    } else {
+      console.log('  ℹ️  No Gmail credentials. Gmail integration disabled.');
+      console.log('  💡 You can configure Gmail later by telling the assistant: "let\'s configure Gmail"');
+    }
   }
 
   private async createDefaultConfig(): Promise<void> {
