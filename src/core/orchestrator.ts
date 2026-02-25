@@ -132,26 +132,38 @@ Always tell the user about active sub-agents when relevant.${toolSection}`;
       this.eventBus.emit(Events.WORKFLOW_CREATED, { workflow });
     }
 
-    // Do NOT add the prompt to memory as a user message every time it runs.
-    // Instead, just pass it via the system prompt (which now takes the schedule prompt).
+    // Subagents must NOT accumulate their own output chatter, otherwise they get stuck in loops
+    // repeating what they did.
     const memory = this.memoryManager.createMemory(workflow.id);
+    // Clear previous memory for this specific run so it only sees the system prompt 
+    // and the tools, avoiding the conversational loop, but we lose state so we must allow tools to carry state.
+    // Instead of completely clearing memory every time, we add explicit instruction to the prompt:
 
     workflow.status = 'running';
     workflow.updatedAt = new Date();
 
     try {
       // Just send an empty "wake up" message to trigger the LLM to run its background check
+      const promptToSend = `WAKE UP. It is time to execute your background task. 
+YOUR TASK: ${prompt}
+
+If there is nothing new to report, reply ONLY with the word "SILENT". DO NOT say anything else.
+DO NOT repeat previous confirmations. Only report new data you find right now via tools.`;
+
       const response = await this.processWithLLM(workflow, {
         id: crypto.randomUUID(),
         channelId,
         userId,
-        content: '<WAKE>',
+        content: promptToSend,
         timestamp: new Date()
       }, true, prompt);
 
-      // Only save to memory if it wasn't silent
-      if (response.trim() !== 'SILENT') {
+      // Only save to memory and emit if it wasn't silent
+      if (!response.includes('SILENT') && response.trim() !== 'SILENT') {
+        // We only save actual alerts/reports to memory
+        await memory.addMessage('user', promptToSend, { channelId, userId });
         await memory.addMessage('assistant', response);
+
         this.eventBus.emit(Events.AGENT_RESPONSE, {
           workflowId: workflow.id,
           userId: userId,
