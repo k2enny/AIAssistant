@@ -70,7 +70,7 @@ describe('TelegramClient', () => {
 
             // Handle send_message
             if (msg.method === 'send_message') {
-              socket.write(JSON.stringify({ id: msg.id, result: { status: 'ok', workflowId: 'wf-1' } }) + '\n');
+              socket.write(JSON.stringify({ id: msg.id, result: { status: 'ok', workflowId: 'wf-1', content: 'Test response' } }) + '\n');
 
               // Simulate agent response after a short delay
               setTimeout(() => {
@@ -78,6 +78,7 @@ describe('TelegramClient', () => {
                   id: crypto.randomUUID(),
                   event: 'agent:response',
                   data: {
+                    workflowId: 'wf-1',
                     channelId: msg.params.channelId || 'tui',
                     userId: msg.params.userId,
                     content: 'Test response',
@@ -114,6 +115,12 @@ describe('TelegramClient', () => {
                   { name: 'datetime', description: 'Date/time operations' },
                 ],
               }) + '\n');
+              continue;
+            }
+
+            // Handle memory_clear
+            if (msg.method === 'memory_clear') {
+              socket.write(JSON.stringify({ id: msg.id, result: { status: 'ok' } }) + '\n');
               continue;
             }
 
@@ -314,6 +321,7 @@ describe('TelegramClient', () => {
         from: { id: 789, username: 'testuser', first_name: 'Test' },
         chat: { id: 101112 },
       },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
     };
 
     await textHandler(mockCtx);
@@ -357,5 +365,113 @@ describe('TelegramClient', () => {
     // Restore env for other tests
     process.env.AIASSISTANT_HOME = homeDir;
     fs.rmSync(badHome, { recursive: true, force: true });
+  });
+
+  test('should invoke /new command handler and clear memory', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const replyMock = jest.fn().mockResolvedValue(undefined);
+    const ctx = { reply: replyMock };
+    const newHandler = botInstance._commands['new'];
+    expect(newHandler).toBeDefined();
+    await newHandler(ctx);
+
+    expect(replyMock).toHaveBeenCalledTimes(1);
+    expect(replyMock.mock.calls[0][0]).toContain('New conversation started');
+
+    // Verify memory_clear was called
+    const clearReq = receivedRequests.find(r => r.method === 'memory_clear');
+    expect(clearReq).toBeDefined();
+
+    await client.stop();
+  });
+
+  test('should send typing indicator before processing text messages', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'test typing',
+        from: { id: 111, username: 'user1', first_name: 'User' },
+        chat: { id: 222 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    expect(mockCtx.sendChatAction).toHaveBeenCalledWith('typing');
+
+    await client.stop();
+  });
+
+  test('should send response directly from IPC result content', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'hello',
+        from: { id: 333, username: 'user2', first_name: 'User2' },
+        chat: { id: 444 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    // The response should come directly from the IPC result (content field)
+    expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(444, 'Test response');
+
+    await client.stop();
+  });
+
+  test('should not send duplicate response from event when direct path succeeded', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'hello dedup',
+        from: { id: 555, username: 'user3', first_name: 'User3' },
+        chat: { id: 666 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    // Wait for the event to arrive
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // The direct path sends the response once.
+    // The event path should be deduped and NOT send again.
+    const calls = botInstance.telegram.sendMessage.mock.calls.filter(
+      (c: any[]) => c[0] === 666 && c[1] === 'Test response'
+    );
+    expect(calls.length).toBe(1);
+
+    await client.stop();
   });
 });

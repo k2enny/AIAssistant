@@ -266,8 +266,8 @@ export class Daemon {
         metadata: params.metadata,
       };
       this.connectedChannels.add(message.channelId);
-      await this.orchestrator.handleMessage(message);
-      return { status: 'ok', workflowId: message.id };
+      const response = await this.orchestrator.handleMessage(message);
+      return { status: 'ok', workflowId: message.id, content: response };
     });
 
     // List workflows

@@ -78,7 +78,7 @@ If a tool call is blocked by policy, explain to the user what happened.${toolSec
     this.llmClient = client;
   }
 
-  async handleMessage(message: Message): Promise<void> {
+  async handleMessage(message: Message): Promise<string | undefined> {
     // Find or create workflow
     let workflow = this.findWorkflowForUser(message.userId, message.channelId);
     if (!workflow) {
@@ -112,6 +112,8 @@ If a tool call is blocked by policy, explain to the user what happened.${toolSec
         channelId: message.channelId,
         content: response,
       });
+
+      return response;
     } catch (err: any) {
       const errorMsg = `Error processing message: ${err.message}`;
       this.eventBus.emit(Events.AGENT_ERROR, {
@@ -120,6 +122,7 @@ If a tool call is blocked by policy, explain to the user what happened.${toolSec
         channelId: message.channelId,
         error: errorMsg,
       });
+      return undefined;
     } finally {
       workflow.status = 'completed';
       workflow.updatedAt = new Date();

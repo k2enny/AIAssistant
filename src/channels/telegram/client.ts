@@ -22,6 +22,7 @@ export class TelegramClient {
   private buffer = '';
   private requestCounter = 0;
   private chatMap: Map<string, number> = new Map();
+  private respondedWorkflows: Set<string> = new Set();
   private running = false;
 
   constructor(botToken: string) {
@@ -174,21 +175,21 @@ export class TelegramClient {
     // In Telegraf v4 middleware runs in registration order; if bot.on('text')
     // is registered first it matches ALL text messages (including commands)
     // and swallows them before command handlers can run.
-    this.bot.command('start', (ctx) => {
-      ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
+    this.bot.command('start', async (ctx) => {
+      await ctx.reply('👋 AIAssistant is ready! Send me a message to get started.\n\nCommands:\n/status - Check status\n/tools - List tools\n/help - Show help');
     });
 
     this.bot.command('status', async (ctx) => {
       try {
         const status = await this.request('status');
-        ctx.reply(
+        await ctx.reply(
           `🟢 AIAssistant Status\n` +
           `  Uptime: ${Math.floor(status.uptime)}s\n` +
           `  Tools: ${status.tools.join(', ')}\n` +
           `  Active Workflows: ${status.activeWorkflows}`
         );
       } catch {
-        ctx.reply('🟢 AIAssistant is running.');
+        await ctx.reply('🟢 AIAssistant is running.');
       }
     });
 
@@ -196,14 +197,23 @@ export class TelegramClient {
       try {
         const tools = await this.request('list_tools');
         const list = tools.map((t: any) => `• ${t.name}: ${t.description}`).join('\n');
-        ctx.reply(`🔧 Available Tools:\n${list}`);
+        await ctx.reply(`🔧 Available Tools:\n${list}`);
       } catch {
-        ctx.reply('❌ Could not retrieve tools list.');
+        await ctx.reply('❌ Could not retrieve tools list.');
       }
     });
 
-    this.bot.command('help', (ctx) => {
-      ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    this.bot.command('help', async (ctx) => {
+      await ctx.reply('🤖 AIAssistant Help\n\nSend any message to interact with the AI.\n\nCommands:\n/start - Initialize\n/status - Check status\n/tools - List available tools\n/new - Start new conversation\n/help - This message');
+    });
+
+    this.bot.command('new', async (ctx) => {
+      try {
+        await this.request('memory_clear');
+        await ctx.reply('🆕 New conversation started. Previous context has been cleared.');
+      } catch {
+        await ctx.reply('🆕 New conversation started.');
+      }
     });
 
     // General text handler registered AFTER commands so commands are matched first.
@@ -216,11 +226,27 @@ export class TelegramClient {
       this.chatMap.set(userId, chatId);
 
       try {
-        await this.request('send_message', {
+        // Send typing indicator so the user knows the bot received the message
+        await ctx.sendChatAction('typing');
+
+        const result = await this.request('send_message', {
           content: ctx.message.text,
           userId,
           channelId: 'telegram',
         });
+
+        // Send the response directly from the IPC result when available.
+        // This provides a reliable response path independent of the event flow.
+        if (result?.content) {
+          if (result.workflowId) {
+            // Cap the dedup set to prevent unbounded growth
+            if (this.respondedWorkflows.size > 1000) {
+              this.respondedWorkflows.clear();
+            }
+            this.respondedWorkflows.add(result.workflowId);
+          }
+          await this.sendTelegramMessage(chatId, result.content);
+        }
       } catch (err: any) {
         try {
           await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
@@ -234,6 +260,11 @@ export class TelegramClient {
   private setupEventHandlers(): void {
     this.onEvent('agent:response', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
+        // Skip if already responded via the direct IPC result path
+        if (data.workflowId && this.respondedWorkflows.has(data.workflowId)) {
+          this.respondedWorkflows.delete(data.workflowId);
+          return;
+        }
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
           this.sendTelegramMessage(chatId, data.content);
