@@ -105,7 +105,7 @@ export class SubAgentTool implements Tool {
 
     if (params.action === 'spawn') {
       if (!params.name) errors.push('name is required for spawn action');
-      if (!params.prompt && params.task_type !== 'email_watcher') errors.push('prompt is required for spawn action');
+      if (!params.prompt) errors.push('prompt is required for spawn action');
     }
 
     if (['pause', 'resume', 'delete', 'get'].includes(params.action) && !params.agent_id) {

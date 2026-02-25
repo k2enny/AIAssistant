@@ -21,6 +21,13 @@ describe('SubAgentTool', () => {
     eventBus = new EventBus();
     manager = new SubAgentManager(eventBus);
     tool = new SubAgentTool(manager);
+
+    // Register a mock llm_worker task type (normally done by the daemon)
+    tool.registerTaskType('llm_worker', (config, intervalMs) => ({
+      description: config.prompt || 'Background LLM worker',
+      intervalMs,
+      execute: jest.fn().mockResolvedValue(undefined),
+    }));
   });
 
   afterEach(() => {
@@ -32,11 +39,11 @@ describe('SubAgentTool', () => {
     expect(tool.schema.category).toBe('system');
   });
 
-  test('should validate spawn requires name and task_type', () => {
+  test('should validate spawn requires name and prompt', () => {
     const result = tool.validate!({ action: 'spawn' });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('name is required for spawn action');
-    expect(result.errors).toContain('task_type is required for spawn action');
+    expect(result.errors).toContain('prompt is required for spawn action');
   });
 
   test('should validate pause requires agent_id', () => {
@@ -52,7 +59,7 @@ describe('SubAgentTool', () => {
 
   test('should handle dry run', async () => {
     const dryContext = { ...context, dryRun: true };
-    const result = await tool.execute({ action: 'spawn', name: 'test', task_type: 'email_watcher' }, dryContext);
+    const result = await tool.execute({ action: 'spawn', name: 'test', prompt: 'Watch emails' }, dryContext);
     expect(result.success).toBe(true);
     expect(result.output).toContain('[DRY RUN]');
   });
@@ -61,7 +68,7 @@ describe('SubAgentTool', () => {
     const result = await tool.execute({
       action: 'spawn',
       name: 'my-watcher',
-      task_type: 'email_watcher',
+      prompt: 'Watch for important emails and notify me',
       description: 'Watches for important emails',
       interval_minutes: 10,
     }, context);
@@ -86,7 +93,7 @@ describe('SubAgentTool', () => {
     await tool.execute({
       action: 'spawn',
       name: 'w1',
-      task_type: 'email_watcher',
+      prompt: 'Watch for emails',
     }, context);
 
     const result = await tool.execute({ action: 'list' }, context);
@@ -99,7 +106,7 @@ describe('SubAgentTool', () => {
     const spawnResult = await tool.execute({
       action: 'spawn',
       name: 'pausable',
-      task_type: 'email_watcher',
+      prompt: 'Watch for emails',
       interval_minutes: 60,
     }, context);
 
@@ -113,7 +120,7 @@ describe('SubAgentTool', () => {
     const spawnResult = await tool.execute({
       action: 'spawn',
       name: 'resumable',
-      task_type: 'email_watcher',
+      prompt: 'Watch for emails',
       interval_minutes: 60,
     }, context);
 
@@ -128,7 +135,7 @@ describe('SubAgentTool', () => {
     const spawnResult = await tool.execute({
       action: 'spawn',
       name: 'deletable',
-      task_type: 'email_watcher',
+      prompt: 'Watch for emails',
       interval_minutes: 60,
     }, context);
 
@@ -146,7 +153,7 @@ describe('SubAgentTool', () => {
     const spawnResult = await tool.execute({
       action: 'spawn',
       name: 'gettable',
-      task_type: 'email_watcher',
+      prompt: 'Watch for emails',
     }, context);
 
     const agentId = spawnResult.output.agent.id;
