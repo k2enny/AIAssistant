@@ -28,13 +28,25 @@ function removePidFile(): void {
 }
 
 async function main(): Promise<void> {
-  writePidFile();
+  // Register global error handlers early so every failure path is covered.
+  process.on('uncaughtException', (err) => {
+    console.error('Telegram bot uncaught exception:', err);
+    removePidFile();
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Telegram bot unhandled rejection:', reason);
+    removePidFile();
+    process.exit(1);
+  });
 
   const vault = new Vault(HOME_DIR);
   await vault.initialize();
   const token = await vault.getSecret('telegram_bot_token');
   if (!token) {
-    throw new Error('Telegram bot token not configured. Run setup first: ./aiassistant setup');
+    console.error('Telegram bot token not configured. Run setup first: ./aiassistant setup');
+    process.exit(1);
   }
 
   const client = new TelegramClient(token);
@@ -52,22 +64,17 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  process.on('uncaughtException', () => {
-    removePidFile();
-    process.exit(1);
-  });
-
-  process.on('unhandledRejection', () => {
-    removePidFile();
-    process.exit(1);
-  });
-
   try {
     await client.start();
-  } catch (err) {
+  } catch (err: any) {
+    console.error('Failed to start Telegram bot:', err?.message || err);
     removePidFile();
     process.exit(1);
   }
+
+  // Write PID file only after the bot has started successfully so the
+  // parent process treats its presence as a reliable "ready" signal.
+  writePidFile();
 }
 
 main();

@@ -16,9 +16,13 @@ import { PluginLoader } from '../plugins/loader';
 import { Orchestrator } from '../core/orchestrator';
 import { OpenRouterClient } from '../llm/openrouter';
 import { IPCServer } from './ipc-server';
+import { SubAgentManager } from '../core/subagent-manager';
 import { ShellTool } from '../tools/builtin/shell';
 import { DateTimeTool } from '../tools/builtin/datetime';
 import { PlaywrightTool } from '../tools/builtin/playwright';
+import { GmailTool } from '../tools/builtin/gmail';
+import { SelfAwarenessTool } from '../tools/builtin/self-awareness';
+import { SubAgentTool } from '../tools/builtin/subagent';
 import { Message, Logger as ILogger } from '../core/interfaces';
 
 export class Daemon {
@@ -31,6 +35,7 @@ export class Daemon {
   private toolRegistry: ToolRegistry;
   private pluginLoader: PluginLoader;
   private orchestrator: Orchestrator;
+  private subAgentManager: SubAgentManager;
   private ipcServer: IPCServer;
   private logger: winston.Logger;
   private homeDir: string;
@@ -87,6 +92,7 @@ export class Daemon {
     this.policyEngine = new PolicyEngineImpl(this.storage, this.eventBus);
     this.memoryManager = new MemoryManager(this.storage);
     this.toolRegistry = new ToolRegistry(this.eventBus);
+    this.subAgentManager = new SubAgentManager(this.eventBus);
     
     const loggerAdapter: ILogger = {
       info: (msg, meta) => this.logger.info(msg, meta),
@@ -183,6 +189,9 @@ export class Daemon {
     this.eventBus.emit(Events.DAEMON_STOPPING, {});
     this.running = false;
 
+    // Stop all sub-agents
+    this.subAgentManager.stopAll();
+
     // Stop channels
     for (const [name, channel] of this.channels) {
       try {
@@ -224,6 +233,20 @@ export class Daemon {
     this.toolRegistry.register(new ShellTool());
     this.toolRegistry.register(new DateTimeTool());
     this.toolRegistry.register(new PlaywrightTool());
+    this.toolRegistry.register(new GmailTool());
+
+    const selfAwareness = new SelfAwarenessTool();
+    selfAwareness.setContext({
+      getTools: () => this.toolRegistry.getSchemas().map(t => ({ name: t.name, description: t.description, category: t.category })),
+      getPlugins: () => this.pluginLoader.getLoadedPlugins().map(p => ({ name: p.metadata.name, version: p.metadata.version, description: p.metadata.description })),
+      getChannels: () => [...Array.from(this.channels.keys()), ...Array.from(this.connectedChannels)],
+      getActiveWorkflows: () => this.orchestrator.getActiveWorkflows().length,
+      getUptime: () => process.uptime(),
+      getSubAgents: () => this.subAgentManager.list().map(a => ({ id: a.id, name: a.name, description: a.description, status: a.status })),
+    });
+    this.toolRegistry.register(selfAwareness);
+
+    this.toolRegistry.register(new SubAgentTool(this.subAgentManager));
   }
 
   private async configureLLM(): Promise<void> {
@@ -354,6 +377,24 @@ export class Daemon {
     this.ipcServer.registerHandler('ping', async () => {
       return { pong: true, timestamp: new Date().toISOString() };
     });
+
+    // Sub-agent management
+    this.ipcServer.registerHandler('subagent_list', async () => {
+      return this.subAgentManager.list();
+    });
+
+    this.ipcServer.registerHandler('subagent_pause', async (params) => {
+      return this.subAgentManager.pause(params.id);
+    });
+
+    this.ipcServer.registerHandler('subagent_resume', async (params) => {
+      return this.subAgentManager.resume(params.id);
+    });
+
+    this.ipcServer.registerHandler('subagent_delete', async (params) => {
+      this.subAgentManager.delete(params.id);
+      return { status: 'ok' };
+    });
   }
 
   private setupEventForwarding(): void {
@@ -374,6 +415,14 @@ export class Daemon {
       Events.PLUGIN_LOADED,
       Events.PLUGIN_UNLOADED,
       Events.PLUGIN_RELOADED,
+      Events.SUBAGENT_SPAWNED,
+      Events.SUBAGENT_STOPPED,
+      Events.SUBAGENT_PAUSED,
+      Events.SUBAGENT_RESUMED,
+      Events.SUBAGENT_ERROR,
+      Events.SUBAGENT_OUTPUT,
+      Events.EMAIL_RECEIVED,
+      Events.EMAIL_SENT,
     ];
 
     for (const event of forwardEvents) {
