@@ -22,7 +22,6 @@ export class TelegramClient {
   private buffer = '';
   private requestCounter = 0;
   private chatMap: Map<string, number> = new Map();
-  private respondedWorkflows: Set<string> = new Set();
   private launchPromise: Promise<void> | null = null;
   private running = false;
 
@@ -158,16 +157,10 @@ export class TelegramClient {
     this.setupEventHandlers();
     this.setupBot();
 
-    // bot.launch() blocks until the polling loop ends, so we must NOT
-    // await it – otherwise start() would never resolve and the caller
-    // would hang.  We save the promise and attach an error handler so
-    // fatal polling errors (e.g. 401 Unauthorized) are surfaced.
+    // Fail fast if polling cannot start so callers don't report "running"
+    // while the bot is actually unable to receive/send messages.
     this.launchPromise = this.bot.launch();
-    this.launchPromise.catch((err) => {
-      this.running = false;
-      // Surface the error so the caller can observe it
-      console.error(`Telegram bot polling error: ${err.message}`);
-    });
+    await this.launchPromise;
     this.running = true;
   }
 
@@ -256,24 +249,20 @@ export class TelegramClient {
         // Send typing indicator so the user knows the bot received the message
         await ctx.sendChatAction('typing');
 
-        const result = await this.request('send_message', {
+        // Fire-and-forget: rely on the agent:response event for final output.
+        // This avoids duplicate replies and avoids surfacing request timeouts
+        // during long-running workflows.
+        this.request('send_message', {
           content: ctx.message.text,
           userId,
           channelId: 'telegram',
-        });
-
-        // Send the response directly from the IPC result when available.
-        // This provides a reliable response path independent of the event flow.
-        if (result?.content) {
-          if (result.workflowId) {
-            // Cap the dedup set to prevent unbounded growth
-            if (this.respondedWorkflows.size > 1000) {
-              this.respondedWorkflows.clear();
-            }
-            this.respondedWorkflows.add(result.workflowId);
+        }).catch(async (err: any) => {
+          try {
+            await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
+          } catch {
+            // Ignore send failures
           }
-          await this.sendTelegramMessage(chatId, result.content);
-        }
+        });
       } catch (err: any) {
         try {
           await this.bot.telegram.sendMessage(chatId, `❌ Error: ${err.message}`);
@@ -287,11 +276,6 @@ export class TelegramClient {
   private setupEventHandlers(): void {
     this.onEvent('agent:response', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
-        // Skip if already responded via the direct IPC result path
-        if (data.workflowId && this.respondedWorkflows.has(data.workflowId)) {
-          this.respondedWorkflows.delete(data.workflowId);
-          return;
-        }
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
           this.sendTelegramMessage(chatId, data.content);

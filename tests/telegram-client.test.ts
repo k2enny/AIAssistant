@@ -329,6 +329,9 @@ describe('TelegramClient', () => {
 
     await textHandler(mockCtx);
 
+    // The request is fire-and-forget; allow IPC write to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     // Verify the message was sent to daemon
     const sendReq = receivedRequests.find(r => r.method === 'send_message');
     expect(sendReq).toBeDefined();
@@ -415,11 +418,12 @@ describe('TelegramClient', () => {
     await textHandler(mockCtx);
 
     expect(mockCtx.sendChatAction).toHaveBeenCalledWith('typing');
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     await client.stop();
   });
 
-  test('should send response directly from IPC result content', async () => {
+  test('should send response from agent event after text message', async () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');
     await client.start();
@@ -439,13 +443,14 @@ describe('TelegramClient', () => {
 
     await textHandler(mockCtx);
 
-    // The response should come directly from the IPC result (content field)
+    // Response should arrive through agent:response event routing
+    await new Promise(resolve => setTimeout(resolve, 200));
     expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(444, 'Test response');
 
     await client.stop();
   });
 
-  test('should not send duplicate response from event when direct path succeeded', async () => {
+  test('should send only one response per message', async () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');
     await client.start();
@@ -468,8 +473,7 @@ describe('TelegramClient', () => {
     // Wait for the event to arrive
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // The direct path sends the response once.
-    // The event path should be deduped and NOT send again.
+    // Should only send one response for this message
     const calls = botInstance.telegram.sendMessage.mock.calls.filter(
       (c: any[]) => c[0] === 666 && c[1] === 'Test response'
     );
@@ -502,6 +506,19 @@ describe('TelegramClient', () => {
     expect(client.isRunning()).toBe(true);
 
     await client.stop();
+  });
+
+  test('should fail start() when bot launch fails', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+    botInstance.launch.mockRejectedValueOnce(new Error('launch failed'));
+
+    await expect(client.start()).rejects.toThrow('launch failed');
+    expect(client.isRunning()).toBe(false);
+    await client.disconnect();
   });
 
   test('/start command handler should not throw even if ctx.reply fails', async () => {
