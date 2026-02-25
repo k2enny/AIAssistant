@@ -20,7 +20,13 @@ export class TaskTool implements Tool {
     description:
       'Manage periodic coded tasks. Tasks are coded functions that run automatically on a schedule ' +
       '(e.g. "check my emails every 30 seconds and notify me about new ones"). ' +
-      'The code should be a Node.js module that exports a single async function.',
+      'The code should be a Node.js module that exports a single async function. ' +
+      'IMPORTANT: The function receives a context object { tools, skills } where "tools" is an object ' +
+      'with all built-in tools (e.g. tools.gmail, tools.web_browse, tools.shell_exec) and "skills" ' +
+      'is an object with all created skills callable by name (e.g. await skills["my-skill"]({ param: "value" })). ' +
+      'Always prefer using built-in tools and existing skills over writing raw implementations. ' +
+      'For example, to check emails use: const result = await tools.gmail({ action: "list", max_results: 5 }); ' +
+      'Signature: module.exports = async function({ tools, skills }) { ... }',
     parameters: [
       {
         name: 'action',
@@ -50,7 +56,8 @@ export class TaskTool implements Tool {
         name: 'code',
         type: 'string',
         description:
-          'The Node.js code for the task (for "create"). Must export a function: module.exports = async function() { ... }',
+          'The Node.js code for the task (for "create"). Must export a function: module.exports = async function({ tools, skills }) { ... }. ' +
+          'The "tools" object has built-in tools (e.g. tools.gmail, tools.shell_exec). The "skills" object has other skills callable by name.',
         required: false,
       },
       {

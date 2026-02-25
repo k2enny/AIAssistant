@@ -259,6 +259,21 @@ describe('Orchestrator', () => {
     expect(prompt).not.toContain('AIAssistant, a helpful AI operator');
   });
 
+  test('system prompt should instruct LLM to use built-in tools in tasks and skills', () => {
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('built-in tools');
+    expect(prompt).toContain('tools.gmail');
+    expect(prompt).toContain('tools.web_browse');
+    expect(prompt).toContain('tools.shell_exec');
+  });
+
+  test('system prompt should instruct LLM that skills are available in task/skill code', () => {
+    const prompt = orchestrator.buildSystemPrompt();
+    expect(prompt).toContain('skills');
+    expect(prompt).toContain('skills["fetch-webpage"]');
+    expect(prompt).toContain('compose skills together');
+  });
+
   test('handleSubagentTask should not emit AGENT_RESPONSE for SILENT LLM responses', async () => {
     // Without an LLM client, processWithLLM returns the fallback.
     // For subagents, empty content should return SILENT, not "I completed the task."
@@ -276,5 +291,58 @@ describe('Orchestrator', () => {
       r.content && r.content.includes('I completed the task')
     );
     expect(spamMessages).toHaveLength(0);
+  });
+
+  test('user messages should never get generic "I completed the task" response', async () => {
+    // Without LLM configured, user messages use processWithoutLLM which has
+    // its own responses. The "I completed the task." fallback should never
+    // appear for user-facing interactions.
+    const responses: any[] = [];
+    eventBus.on(Events.AGENT_RESPONSE, (data) => {
+      responses.push(data);
+    });
+
+    const message: Message = {
+      id: 'test-no-completed',
+      channelId: 'tui',
+      userId: 'user1',
+      content: 'What time is it?',
+      timestamp: new Date(),
+    };
+
+    await orchestrator.handleMessage(message);
+
+    const badMessages = responses.filter(r =>
+      r.content && r.content.includes('I completed the task')
+    );
+    expect(badMessages).toHaveLength(0);
+  });
+
+  test('fallback message should describe what went wrong', () => {
+    // Access the private method via bracket notation for testing
+    const buildFallback = (orchestrator as any).buildFallbackMessage.bind(orchestrator);
+
+    // Max iterations reached
+    const maxIterMsg = buildFallback('stop', 10, 10, []);
+    expect(maxIterMsg).toContain('too many steps');
+    expect(maxIterMsg).toContain('10 tool calls');
+
+    // Token limit hit
+    const lengthMsg = buildFallback('length', 0, 10, []);
+    expect(lengthMsg).toContain('exceeded the maximum token length');
+
+    // Tools ran but empty response
+    const toolMsg = buildFallback('stop', 2, 10, [
+      { role: 'tool' as const, content: '{}', name: 'gmail' },
+      { role: 'tool' as const, content: '{}', name: 'shell_exec' },
+    ]);
+    expect(toolMsg).toContain('gmail');
+    expect(toolMsg).toContain('shell_exec');
+    expect(toolMsg).toContain('empty response');
+
+    // No tools, unknown reason
+    const unknownMsg = buildFallback(undefined, 0, 10, []);
+    expect(unknownMsg).toContain('empty response');
+    expect(unknownMsg).toContain('unknown');
   });
 });

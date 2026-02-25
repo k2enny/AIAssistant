@@ -18,7 +18,13 @@ export class SkillTool implements Tool {
     description:
       'Manage reusable coded skills. Skills are one-time coded functions that you create and can invoke repeatedly. ' +
       'Use this when the user asks you to create a reusable capability (e.g. "read a website", "convert currencies"). ' +
-      'The code should be a Node.js module that exports a single async function.',
+      'The code should be a Node.js module that exports a single async function. ' +
+      'IMPORTANT: The function receives (params, { tools, skills }) where "tools" is an object ' +
+      'with all built-in tools (e.g. tools.gmail, tools.web_browse, tools.shell_exec) and "skills" ' +
+      'is an object with all created skills callable by name (e.g. await skills["my-skill"]({ param: "value" })). ' +
+      'Always prefer using built-in tools and existing skills over writing raw implementations. ' +
+      'For example, to send email use: const result = await tools.gmail({ action: "send", to, subject, body }); ' +
+      'Signature: module.exports = async function(params, { tools, skills }) { ... }',
     parameters: [
       {
         name: 'action',
@@ -48,7 +54,8 @@ export class SkillTool implements Tool {
         name: 'code',
         type: 'string',
         description:
-          'The Node.js code for the skill (for "create"). Must export a function: module.exports = async function(params) { ... }',
+          'The Node.js code for the skill (for "create"). Must export a function: module.exports = async function(params, { tools, skills }) { ... }. ' +
+          'The "tools" object has built-in tools (e.g. tools.gmail, tools.shell_exec). The "skills" object has other skills callable by name.',
         required: false,
       },
       {

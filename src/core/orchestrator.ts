@@ -116,6 +116,19 @@ Agents can create sub-agents. When you delete an agent, all its sub-agents are a
 
 You can create reusable skills using the "skill" tool. Generate JavaScript code that can be saved and invoked later.
 You can create periodic tasks using the "task" tool. Generate JavaScript code that will run on a schedule.
+
+**Using built-in tools and skills inside tasks and skills:**
+When writing code for a task or skill, you MUST prefer built-in tools and existing skills over raw implementations.
+Task functions receive a context object: module.exports = async function({ tools, skills }) { ... }
+Skill functions receive params and context: module.exports = async function(params, { tools, skills }) { ... }
+The "tools" object contains all registered built-in tools as callable async functions.
+For example: tools.gmail({ action: "list" }), tools.web_browse({ action: "navigate", url: "..." }), tools.shell_exec({ command: "..." }).
+The "skills" object contains all created skills callable by name as async functions.
+For example: await skills["fetch-webpage"]({ url: "https://example.com" }), await skills["convert-currency"]({ amount: 100, from: "USD", to: "EUR" }).
+Each tool function returns { success, output, error? }. Always check result.success before using result.output.
+Skills return their result directly. You can compose skills together — a skill or task can call other skills.
+This is much more reliable than writing raw HTTP requests or custom code for functionality that built-in tools already provide.
+
 Always tell the user about active agents, skills, and tasks when relevant.${toolSection}`;
   }
 
@@ -303,7 +316,59 @@ RULES:
     if (!response.content && isSubagent) {
       return 'SILENT';
     }
-    return response.content || 'I completed the task.';
+
+    // If the LLM returned empty content after tool calls for a user-facing
+    // interaction, ask it once more to produce a proper answer based on the
+    // tool results already in the conversation.
+    if (!response.content && iterations > 0) {
+      messages.push({
+        role: 'user',
+        content: 'Please provide a clear response to my original question based on the tool results above.',
+      });
+      const retry = await this.llmClient.chat(messages, tools);
+      if (retry.content) {
+        return retry.content;
+      }
+    }
+
+    if (!response.content) {
+      return this.buildFallbackMessage(response.finishReason, iterations, maxIterations, messages);
+    }
+    return response.content;
+  }
+
+  /**
+   * Build a descriptive fallback message when the LLM returns empty content,
+   * explaining what went wrong instead of using a generic fixed string.
+   */
+  private buildFallbackMessage(
+    finishReason: string | undefined,
+    iterations: number,
+    maxIterations: number,
+    messages: LLMMessage[]
+  ): string {
+    const parts: string[] = ['I was unable to generate a response.'];
+
+    if (iterations >= maxIterations) {
+      parts.push(`The request required too many steps (${iterations} tool calls reached the limit). Try breaking your request into smaller parts.`);
+    } else if (finishReason === 'length') {
+      parts.push('The response was cut off because it exceeded the maximum token length. Try asking a more specific question.');
+    } else if (iterations > 0) {
+      // Summarise which tools ran so the user knows what happened
+      const toolNames = messages
+        .filter(m => m.role === 'tool' && m.name)
+        .map(m => m.name!);
+      const uniqueTools = [...new Set(toolNames)];
+      if (uniqueTools.length > 0) {
+        parts.push(`I executed ${uniqueTools.join(', ')} but the model returned an empty response afterward. You can try rephrasing your question.`);
+      } else {
+        parts.push('Tools were called but the model did not produce a final answer. Please try again.');
+      }
+    } else {
+      parts.push(`The model returned an empty response (finish reason: ${finishReason || 'unknown'}). This may be a temporary issue — please try again.`);
+    }
+
+    return parts.join(' ');
   }
 
   private async executeToolCall(

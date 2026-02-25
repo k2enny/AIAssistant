@@ -100,8 +100,8 @@ export class Daemon {
     this.memoryManager = new MemoryManager(this.storage);
     this.toolRegistry = new ToolRegistry(this.eventBus);
     this.subAgentManager = new SubAgentManager(this.eventBus);
-    this.skillManager = new SkillManager(this.eventBus, path.join(this.homeDir, 'skills'));
-    this.taskManager = new TaskManager(this.eventBus, path.join(this.homeDir, 'tasks'));
+    this.skillManager = new SkillManager(this.eventBus, path.join(this.homeDir, 'skills'), this.toolRegistry);
+    this.taskManager = new TaskManager(this.eventBus, path.join(this.homeDir, 'tasks'), this.toolRegistry, this.skillManager);
 
     const loggerAdapter: ILogger = {
       info: (msg, meta) => this.logger.info(msg, meta),

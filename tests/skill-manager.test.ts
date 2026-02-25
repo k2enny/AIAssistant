@@ -147,4 +147,93 @@ describe('SkillManager', () => {
     expect(list.length).toBe(2);
     expect(list.map(s => s.name).sort()).toEqual(['persist1', 'persist2']);
   });
+
+  test('should pass tools context to skill function when toolRegistry is provided', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new SkillManager(eventBus, skillsDir, registry);
+
+    const code = `module.exports = async function(params, ctx) {
+      if (!ctx || !ctx.tools || typeof ctx.tools.datetime !== 'function') {
+        throw new Error('tools not provided');
+      }
+      const result = await ctx.tools.datetime({ action: 'now' });
+      if (!result.success) throw new Error('datetime tool failed');
+      return { time: result.output.iso, input: params.msg };
+    };`;
+
+    const info = managerWithTools.create('tools-test', 'Test tools context', code);
+    const result = await managerWithTools.execute(info.id, { msg: 'hello' });
+    expect(result.time).toBeDefined();
+    expect(result.input).toBe('hello');
+  });
+
+  test('should pass skills context so a skill can call another skill', async () => {
+    // Create a helper skill
+    const helperCode = `module.exports = async function(params) { return { doubled: (params.n || 0) * 2 }; };`;
+    const helper = manager.create('doubler', 'Doubles a number', helperCode);
+
+    // Create a skill that calls the helper skill via the skills context
+    const composerCode = `module.exports = async function(params, ctx) {
+      if (!ctx || !ctx.skills || typeof ctx.skills['doubler'] !== 'function') {
+        throw new Error('skills not provided or doubler not found');
+      }
+      const result = await ctx.skills['doubler']({ n: params.value });
+      return { original: params.value, result: result.doubled };
+    };`;
+    const composer = manager.create('double-composer', 'Calls doubler skill', composerCode);
+
+    const result = await manager.execute(composer.id, { value: 5 });
+    expect(result.original).toBe(5);
+    expect(result.result).toBe(10);
+  });
+
+  test('getSkillRunner should return callable functions for all skills', () => {
+    const code = `module.exports = async function(params) { return { ok: true }; };`;
+    manager.create('runner-a', 'Skill A', code);
+    manager.create('runner-b', 'Skill B', code);
+
+    const runner = manager.getSkillRunner();
+    expect(typeof runner['runner-a']).toBe('function');
+    expect(typeof runner['runner-b']).toBe('function');
+  });
+
+  test('getSkillRunner functions should execute skills correctly', async () => {
+    const code = `module.exports = async function(params) { return { sum: (params.x || 0) + (params.y || 0) }; };`;
+    manager.create('adder', 'Adds x and y', code);
+
+    const runner = manager.getSkillRunner();
+    const result = await runner['adder']({ x: 3, y: 7 });
+    expect(result).toEqual({ sum: 10 });
+  });
+
+  test('should allow a skill to use a built-in tool AND call another skill together', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new SkillManager(eventBus, skillsDir, registry);
+
+    // Create a helper skill
+    const helperCode = `module.exports = async function(params) { return { prefix: 'Time is' }; };`;
+    managerWithTools.create('get-prefix', 'Returns a prefix', helperCode);
+
+    // Create a skill that uses BOTH a built-in tool AND another skill
+    const composerCode = `module.exports = async function(params, { tools, skills }) {
+      const timeResult = await tools.datetime({ action: 'now' });
+      if (!timeResult.success) throw new Error('datetime tool failed');
+      const prefixResult = await skills['get-prefix']({});
+      return { message: prefixResult.prefix + ': ' + timeResult.output.iso };
+    };`;
+    const composer = managerWithTools.create('time-message', 'Combines skill + tool', composerCode);
+
+    const result = await managerWithTools.execute(composer.id, {});
+    expect(result.message).toMatch(/^Time is: \d{4}-/);
+  });
 });

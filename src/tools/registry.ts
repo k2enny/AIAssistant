@@ -1,7 +1,7 @@
 /**
  * Tool registry - manages tool registration and lookup
  */
-import { Tool, ToolSchema, EventBusInterface } from '../core/interfaces';
+import { Tool, ToolSchema, ToolResult, ToolContext, EventBusInterface } from '../core/interfaces';
 import { Events } from '../core/event-bus';
 
 export class ToolRegistry {
@@ -59,5 +59,28 @@ export class ToolRegistry {
       parameters: s.parameters,
       category: s.category,
     }));
+  }
+
+  /**
+   * Create a toolbox object that task/skill code can use to call built-in
+   * tools directly.  Each key is a tool name and the value is an async
+   * function that accepts the tool's parameters and returns a ToolResult.
+   *
+   * Example usage inside generated task/skill code:
+   *   const emails = await tools.gmail({ action: 'list', max_results: 5 });
+   */
+  getToolbox(): Record<string, (params: Record<string, any>) => Promise<ToolResult>> {
+    const defaultContext: ToolContext = {
+      workflowId: 'task-runtime',
+      userId: 'system',
+      channelId: 'system',
+      dryRun: false,
+    };
+
+    const toolbox: Record<string, (params: Record<string, any>) => Promise<ToolResult>> = {};
+    for (const [name, tool] of this.tools) {
+      toolbox[name] = (params: Record<string, any>) => tool.execute(params, defaultContext);
+    }
+    return toolbox;
   }
 }

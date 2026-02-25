@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { EventBusInterface } from './interfaces';
 import { Events } from './event-bus';
+import type { ToolRegistry } from '../tools/registry';
 
 export interface SkillInfo {
   id: string;
@@ -30,10 +31,12 @@ export class SkillManager {
   private skills: Map<string, SkillInfo> = new Map();
   private eventBus: EventBusInterface;
   private skillsDir: string;
+  private toolRegistry?: ToolRegistry;
 
-  constructor(eventBus: EventBusInterface, skillsDir: string) {
+  constructor(eventBus: EventBusInterface, skillsDir: string, toolRegistry?: ToolRegistry) {
     this.eventBus = eventBus;
     this.skillsDir = skillsDir;
+    this.toolRegistry = toolRegistry;
     if (!fs.existsSync(this.skillsDir)) {
       fs.mkdirSync(this.skillsDir, { recursive: true });
     }
@@ -127,7 +130,12 @@ export class SkillManager {
       throw new Error(`Skill "${skill.name}" does not export a callable function`);
     }
 
-    const result = await fn(params);
+    const context: Record<string, any> = {};
+    if (this.toolRegistry) {
+      context.tools = this.toolRegistry.getToolbox();
+    }
+    context.skills = this.getSkillRunner();
+    const result = await fn(params, context);
     skill.useCount++;
     skill.lastUsedAt = new Date();
     this.eventBus.emit(Events.SKILL_EXECUTED, { id, name: skill.name });
@@ -148,6 +156,21 @@ export class SkillManager {
       if (s.name === name) return { ...s };
     }
     return undefined;
+  }
+
+  /**
+   * Return a helper object that task/skill code can use to invoke other
+   * skills by name.  Each call returns a Promise with the skill result.
+   *
+   * Example usage inside generated task/skill code:
+   *   const result = await skills['my-skill']({ param1: 'value' });
+   */
+  getSkillRunner(): Record<string, (params?: Record<string, any>) => Promise<any>> {
+    const runner: Record<string, (params?: Record<string, any>) => Promise<any>> = {};
+    for (const skill of this.skills.values()) {
+      runner[skill.name] = (params: Record<string, any> = {}) => this.execute(skill.id, params);
+    }
+    return runner;
   }
 
   delete(id: string): void {

@@ -187,4 +187,106 @@ describe('TaskManager', () => {
     // Tasks loaded from disk should be stopped (not auto-started)
     expect(list.every(t => t.status === 'stopped')).toBe(true);
   });
+
+  test('should pass tools context to task function when toolRegistry is provided', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const managerWithTools = new TaskManager(eventBus, tasksDir, registry);
+
+    const code = `module.exports = async function(ctx) {
+      if (!ctx || !ctx.tools || typeof ctx.tools.datetime !== 'function') {
+        throw new Error('tools not provided');
+      }
+      const result = await ctx.tools.datetime({ action: 'now' });
+      if (!result.success) throw new Error('datetime tool failed');
+      return result;
+    };`;
+
+    const info = managerWithTools.create('tools-test', 'Test tools context', code, 50);
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = managerWithTools.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithTools.stopAll();
+  });
+
+  test('should pass skills context to task function when skillManager is provided', async () => {
+    const { SkillManager } = require('../src/core/skill-manager');
+
+    const skillsDir = path.join('/tmp', `aiassistant-test-task-skills-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const skillMgr = new SkillManager(eventBus, skillsDir);
+
+    // Create a skill that the task will call
+    const skillCode = `module.exports = async function(params) { return { tripled: (params.n || 0) * 3 }; };`;
+    skillMgr.create('tripler', 'Triples a number', skillCode);
+
+    const managerWithSkills = new TaskManager(eventBus, tasksDir, undefined, skillMgr);
+
+    const taskCode = `module.exports = async function(ctx) {
+      if (!ctx || !ctx.skills || typeof ctx.skills['tripler'] !== 'function') {
+        throw new Error('skills not provided or tripler not found');
+      }
+      const result = await ctx.skills['tripler']({ n: 4 });
+      if (result.tripled !== 12) throw new Error('unexpected result: ' + JSON.stringify(result));
+    };`;
+
+    const info = managerWithSkills.create('skill-caller', 'Calls tripler skill', taskCode, 50);
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = managerWithSkills.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithSkills.stopAll();
+
+    // cleanup skills dir
+    const fs = require('fs');
+    if (fs.existsSync(skillsDir)) {
+      fs.rmSync(skillsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('should allow a task to use both tools and skills together (integration)', async () => {
+    const { ToolRegistry } = require('../src/tools/registry');
+    const { DateTimeTool } = require('../src/tools/builtin/datetime');
+    const { SkillManager } = require('../src/core/skill-manager');
+
+    const registry = new ToolRegistry(eventBus);
+    registry.register(new DateTimeTool());
+
+    const skillsDir2 = path.join('/tmp', `aiassistant-test-task-integ-skills-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const skillMgr = new SkillManager(eventBus, skillsDir2, registry);
+
+    // Create a skill that formats a timestamp
+    const skillCode = `module.exports = async function(params) { return { formatted: 'Checked at ' + params.time }; };`;
+    skillMgr.create('format-time', 'Formats a timestamp', skillCode);
+
+    const managerWithAll = new TaskManager(eventBus, tasksDir, registry, skillMgr);
+
+    // Task that gets time from a tool, then passes it to a skill
+    const taskCode = `module.exports = async function({ tools, skills }) {
+      const timeResult = await tools.datetime({ action: 'now' });
+      if (!timeResult.success) throw new Error('datetime tool failed');
+      const formatted = await skills['format-time']({ time: timeResult.output.iso });
+      if (!formatted.formatted.startsWith('Checked at ')) throw new Error('skill failed: ' + JSON.stringify(formatted));
+    };`;
+
+    const info = managerWithAll.create('full-chain', 'Tool → Skill chain', taskCode, 50);
+    await new Promise(r => setTimeout(r, 250));
+
+    const updated = managerWithAll.get(info.id);
+    expect(updated!.runCount).toBeGreaterThanOrEqual(1);
+    expect(updated!.lastError).toBeUndefined();
+    managerWithAll.stopAll();
+
+    // cleanup
+    const fsmod = require('fs');
+    if (fsmod.existsSync(skillsDir2)) {
+      fsmod.rmSync(skillsDir2, { recursive: true, force: true });
+    }
+  });
 });

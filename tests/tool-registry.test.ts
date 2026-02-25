@@ -97,6 +97,35 @@ describe('ToolRegistry', () => {
     expect(json[0].name).toBe('mock_tool');
     expect(json[0].description).toBeDefined();
   });
+
+  test('getToolbox should return callable functions for each registered tool', async () => {
+    registry.register(new MockTool());
+    registry.register(new DateTimeTool());
+
+    const toolbox = registry.getToolbox();
+    expect(typeof toolbox.mock_tool).toBe('function');
+    expect(typeof toolbox.datetime).toBe('function');
+  });
+
+  test('getToolbox functions should execute tools and return results', async () => {
+    registry.register(new MockTool());
+
+    const toolbox = registry.getToolbox();
+    const result = await toolbox.mock_tool({ input: 'hello' });
+    expect(result.success).toBe(true);
+    expect(result.output).toBe('Mock: hello');
+  });
+
+  test('getToolbox should reflect dynamically registered tools', () => {
+    registry.register(new MockTool());
+    const toolbox1 = registry.getToolbox();
+    expect(toolbox1.mock_tool).toBeDefined();
+    expect(toolbox1.datetime).toBeUndefined();
+
+    registry.register(new DateTimeTool());
+    const toolbox2 = registry.getToolbox();
+    expect(toolbox2.datetime).toBeDefined();
+  });
 });
 
 describe('ShellTool', () => {
