@@ -562,7 +562,15 @@ async function startTelegramBot(): Promise<void> {
   for (let i = 0; i < 60; i++) {
     await sleep(500);
     if (earlyExit) {
-      throw new Error(`Telegram process exited with code ${exitCode} during startup.`);
+      const stderrLog = path.join(logsDir, 'telegram-stderr.log');
+      let detail = '';
+      try {
+        const content = fs.readFileSync(stderrLog, 'utf-8').trim();
+        if (content.length > 0) {
+          detail = '\n  Check logs: ' + stderrLog;
+        }
+      } catch {}
+      throw new Error(`Telegram process exited with code ${exitCode} during startup.${detail}`);
     }
     if (fs.existsSync(TELEGRAM_PID_FILE)) return;
   }
