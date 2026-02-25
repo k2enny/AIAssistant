@@ -567,7 +567,8 @@ async function startTelegramBot(): Promise<void> {
       try {
         const content = fs.readFileSync(stderrLog, 'utf-8').trim();
         if (content.length > 0) {
-          detail = '\n  Check logs: ' + stderrLog;
+          const lines = content.split('\n').slice(-20);
+          detail = '\n  ' + lines.join('\n  ') + '\n  Full logs: ' + stderrLog;
         }
       } catch {}
       throw new Error(`Telegram process exited with code ${exitCode} during startup.${detail}`);
@@ -615,7 +616,8 @@ async function startDaemon(): Promise<void> {
       try {
         const content = fs.readFileSync(stderrLog, 'utf-8').trim();
         if (content.length > 0) {
-          detail = '\n  Check logs: ' + stderrLog;
+          const lines = content.split('\n').slice(-20);
+          detail = '\n  ' + lines.join('\n  ') + '\n  Full logs: ' + stderrLog;
         }
       } catch {}
       throw new Error(`Daemon process exited with code ${exitCode} during startup.${detail}`);
