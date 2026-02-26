@@ -134,7 +134,8 @@ export class TelegramClient {
           await this.connect();
           this.reconnecting = false;
           console.log('Reconnected to daemon');
-        } catch {
+        } catch (err: any) {
+          console.error(`Reconnection attempt failed: ${err.message}`);
           if (retries > 0 && this.running) {
             attempt(Math.min(delay * 2, 30000), retries - 1);
           } else {
@@ -143,6 +144,7 @@ export class TelegramClient {
           }
         }
       }, delay);
+      // Allow the process to exit even if a reconnect timer is pending
       this.reconnectTimer.unref();
     };
     attempt(1000, 10);
