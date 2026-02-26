@@ -55,6 +55,7 @@ describe('TelegramClient', () => {
     await new Promise<void>((resolve) => {
       server = net.createServer((socket) => {
         let buffer = '';
+        socket.on('error', () => { /* ignore client disconnects */ });
         socket.on('data', (chunk) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
@@ -752,4 +753,88 @@ describe('TelegramClient', () => {
 
     await client.stop();
   });
+
+  test('should send error to user when sendTelegramMessage fails', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+
+    // Make sendMessage fail on the first call (the response) but succeed
+    // on the second call (the error fallback).
+    let callCount = 0;
+    botInstance.telegram.sendMessage.mockImplementation(async (chatId: number, text: string) => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error('Telegram API error');
+      }
+      return undefined;
+    });
+
+    const mockCtx = {
+      message: {
+        text: 'hello',
+        from: { id: 1111, username: 'user_sendfail', first_name: 'SendFail' },
+        chat: { id: 2222 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    // The first sendMessage (response) failed, so the catch block should
+    // have sent an error message via sendMessage (second call).
+    const calls = botInstance.telegram.sendMessage.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[1][0]).toBe(2222);
+    expect(calls[1][1]).toContain('Error');
+
+    await client.stop();
+  });
+
+  test('should reject pending requests when IPC connection is lost', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.connect();
+
+    // Start a request for a method the mock server doesn't respond to,
+    // so the request stays pending until the socket closes.
+    const requestPromise = client.request('slow_method', {});
+
+    // Destroy the client socket directly to simulate connection loss
+    (client as any).socket.destroy();
+
+    // The pending request should be rejected with connection lost error
+    await expect(requestPromise).rejects.toThrow('IPC connection lost');
+
+    await client.stop();
+  }, 10000);
+
+  test('should attempt reconnection when IPC connection drops while running', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    // Verify bot is connected
+    expect((client as any).authenticated).toBe(true);
+
+    // Destroy client socket to simulate connection loss
+    (client as any).socket.destroy();
+
+    // Wait for client to detect disconnection
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect((client as any).authenticated).toBe(false);
+    expect((client as any).reconnecting).toBe(true);
+
+    // Wait for reconnection (first attempt is at 1s)
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    expect((client as any).authenticated).toBe(true);
+    expect((client as any).reconnecting).toBe(false);
+
+    await client.stop();
+  }, 10000);
 });
