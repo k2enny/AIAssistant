@@ -554,4 +554,199 @@ describe('TelegramClient', () => {
 
     await client.stop();
   });
+
+  test('should send fallback when IPC result has no content', async () => {
+    // Override send_message handler to return result without content
+    // (simulates orchestrator returning undefined)
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    if (fs.existsSync(socketPath)) {
+      try { fs.unlinkSync(socketPath); } catch { }
+    }
+
+    await new Promise<void>((resolve) => {
+      server = net.createServer((socket) => {
+        let buffer = '';
+        socket.on('data', (chunk) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line);
+
+            if (msg.method === 'auth') {
+              socket.write(JSON.stringify({ id: msg.id, result: { status: 'authenticated', clientId: 'test' } }) + '\n');
+              continue;
+            }
+
+            if (msg.method === 'send_message') {
+              // Return result without content (orchestrator returned undefined)
+              socket.write(JSON.stringify({ id: msg.id, result: { status: 'ok', workflowId: 'wf-1' } }) + '\n');
+              continue;
+            }
+
+            socket.write(JSON.stringify({ id: msg.id, error: { code: -32601, message: `Unknown method` } }) + '\n');
+          }
+        });
+      });
+
+      server.listen(socketPath, () => {
+        fs.chmodSync(socketPath, 0o600);
+        resolve();
+      });
+    });
+
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'hello',
+        from: { id: 999, username: 'user_nocontent', first_name: 'NoContent' },
+        chat: { id: 888 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    // Should send the fallback message since result had no content
+    expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(
+      888,
+      '⚠️ No response received. Please try again.'
+    );
+
+    await client.stop();
+  });
+
+  test('should send fallback even when IPC result is undefined', async () => {
+    // Override send_message handler to return bare result (no result field in JSON)
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    if (fs.existsSync(socketPath)) {
+      try { fs.unlinkSync(socketPath); } catch { }
+    }
+
+    await new Promise<void>((resolve) => {
+      server = net.createServer((socket) => {
+        let buffer = '';
+        socket.on('data', (chunk) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line);
+
+            if (msg.method === 'auth') {
+              socket.write(JSON.stringify({ id: msg.id, result: { status: 'authenticated', clientId: 'test' } }) + '\n');
+              continue;
+            }
+
+            if (msg.method === 'send_message') {
+              // Return response with no result field (result: undefined is dropped by JSON.stringify)
+              socket.write(JSON.stringify({ id: msg.id }) + '\n');
+              continue;
+            }
+
+            socket.write(JSON.stringify({ id: msg.id, error: { code: -32601, message: `Unknown method` } }) + '\n');
+          }
+        });
+      });
+
+      server.listen(socketPath, () => {
+        fs.chmodSync(socketPath, 0o600);
+        resolve();
+      });
+    });
+
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'hello',
+        from: { id: 777, username: 'user_undef', first_name: 'Undef' },
+        chat: { id: 666 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await textHandler(mockCtx);
+
+    // Even with undefined result, the fallback must be sent
+    expect(botInstance.telegram.sendMessage).toHaveBeenCalledWith(
+      666,
+      '⚠️ No response received. Please try again.'
+    );
+
+    await client.stop();
+  });
+
+  test('should allow proactive agent:response events through during active request', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+    await client.start();
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // Manually populate chatMap so the event handler can look up the chatId
+    (client as any).chatMap.set('789', 101112);
+
+    const textHandler = botInstance._handlers['text'];
+    const mockCtx = {
+      message: {
+        text: 'hello',
+        from: { id: 789, username: 'testuser', first_name: 'Test' },
+        chat: { id: 101112 },
+      },
+      sendChatAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // Start processing but don't await yet — we need to inject a proactive event
+    const processingPromise = textHandler(mockCtx);
+
+    // Simulate a proactive message arriving during the active request.
+    // The event handler should NOT skip it because proactive: true.
+    // Give a small delay for the request to be in-flight.
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Manually fire the event handler with a proactive message
+    const eventHandlers = (client as any).eventHandlers.get('agent:response') || [];
+    for (const handler of eventHandlers) {
+      handler({
+        channelId: 'telegram',
+        userId: '789',
+        content: 'Proactive update!',
+        proactive: true,
+      });
+    }
+
+    await processingPromise;
+
+    // The proactive message should have been sent in addition to the normal reply
+    const calls = botInstance.telegram.sendMessage.mock.calls;
+    const proactiveCalls = calls.filter(
+      (c: any[]) => c[0] === 101112 && c[1] === 'Proactive update!'
+    );
+    expect(proactiveCalls.length).toBe(1);
+
+    await client.stop();
+  });
 });

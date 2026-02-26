@@ -70,4 +70,26 @@ describe('SendMessageTool', () => {
     expect(emitted[0].channelId).toBe('tui');
     expect(emitted[0].userId).toBe('user1');
   });
+
+  test('should emit proactive flag in AGENT_RESPONSE event', async () => {
+    const emitted: any[] = [];
+    eventBus.on(Events.AGENT_RESPONSE, (data) => emitted.push(data));
+
+    await tool.execute({ message: 'proactive msg' }, context);
+
+    expect(emitted[0].proactive).toBe(true);
+  });
+
+  test('should emit proactive flag when targeting telegram channel', async () => {
+    const emitted: any[] = [];
+    eventBus.on(Events.AGENT_RESPONSE, (data) => emitted.push(data));
+
+    await tool.execute(
+      { message: 'telegram msg', channel: 'telegram', user_id: '555' },
+      context,
+    );
+
+    expect(emitted[0].proactive).toBe(true);
+    expect(emitted[0].channelId).toBe('telegram');
+  });
 });
