@@ -28,7 +28,7 @@ export class Vault {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    
+
     // Derive key from passphrase or use machine-specific key
     const pass = passphrase || this.getMachineKey();
     const salt = this.getSalt();
@@ -79,7 +79,7 @@ export class Vault {
 
       const decipher = crypto.createDecipheriv(ALGORITHM, this.encryptionKey, iv);
       decipher.setAuthTag(tag);
-      
+
       const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return JSON.parse(decrypted.toString('utf-8'));
     } catch (err) {
@@ -95,13 +95,13 @@ export class Vault {
 
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(ALGORITHM, this.encryptionKey, iv);
-    
+
     const plaintext = Buffer.from(JSON.stringify(secrets), 'utf-8');
     const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     const tag = cipher.getAuthTag();
 
     const output = Buffer.concat([iv, tag, encrypted]);
-    
+
     // Write atomically
     const tmpPath = this.vaultPath + '.tmp';
     fs.writeFileSync(tmpPath, output, { mode: 0o600 });
@@ -122,7 +122,12 @@ export class Vault {
   private getMachineKey(): string {
     // Use a combination of machine-specific identifiers
     const hostname = os.hostname();
-    const user = process.env.USER || process.env.USERNAME || 'default';
+    let user = 'default';
+    try {
+      user = os.userInfo().username || process.env.USER || process.env.USERNAME || 'default';
+    } catch {
+      user = process.env.USER || process.env.USERNAME || 'default';
+    }
     return `aiassistant-${hostname}-${user}`;
   }
 }

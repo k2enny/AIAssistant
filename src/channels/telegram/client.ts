@@ -234,6 +234,7 @@ export class TelegramClient {
     this.launchPromise.catch((err) => {
       console.error(`Telegram polling error: ${err.message}`);
       if (this.running) {
+        try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
         console.log('Retrying Telegram polling in 5 seconds...');
         setTimeout(() => this.pollWithRetry(), 5000);
       }

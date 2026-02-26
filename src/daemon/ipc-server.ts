@@ -47,18 +47,20 @@ export class IPCServer {
   }
 
   async start(): Promise<void> {
-    // Clean up stale socket
-    if (fs.existsSync(this.socketPath)) {
-      try {
-        fs.unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
+    // Clean up stale socket (only for Unix sockets)
+    if (!this.socketPath.startsWith('\\\\.\\pipe\\')) {
+      if (fs.existsSync(this.socketPath)) {
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {
+          // Ignore
+        }
       }
-    }
 
-    const dir = path.dirname(this.socketPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      const dir = path.dirname(this.socketPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
     }
 
     return new Promise((resolve, reject) => {
@@ -66,10 +68,26 @@ export class IPCServer {
         this.handleConnection(socket);
       });
 
-      this.server.on('error', reject);
+      this.server.on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE' && this.socketPath.startsWith('\\\\.\\pipe\\')) {
+          // On Windows, named pipes can linger in WAIT state.
+          // Since we can't unlink them, wait and retry binding a few times.
+          console.warn(`Pipe ${this.socketPath} in use, retrying in 1s...`);
+          setTimeout(() => {
+            this.server?.listen(this.socketPath, () => {
+              if (!this.socketPath.startsWith('\\\\.\\pipe\\')) fs.chmodSync(this.socketPath, 0o600);
+              resolve();
+            });
+          }, 1000);
+        } else {
+          reject(err);
+        }
+      });
 
       this.server.listen(this.socketPath, () => {
-        fs.chmodSync(this.socketPath, 0o600);
+        if (!this.socketPath.startsWith('\\\\.\\pipe\\')) {
+          fs.chmodSync(this.socketPath, 0o600);
+        }
         resolve();
       });
     });

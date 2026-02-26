@@ -116,6 +116,7 @@ export class TelegramConnector implements ChannelConnector {
     this.bot.launch({ dropPendingUpdates: true }).catch((err: any) => {
       console.error(`Telegram connector polling error: ${err.message}`);
       if (this.connected) {
+        try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
         console.log('Retrying Telegram connector polling in 5 seconds...');
         setTimeout(() => this.pollWithRetry(), 5000);
       }
