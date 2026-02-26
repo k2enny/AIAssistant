@@ -20,8 +20,16 @@ export class IPCServer {
   private readonly authWindowMs = 60000;
 
   constructor(eventBus: EventBusInterface, socketPath?: string) {
-    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
-    this.socketPath = socketPath || path.join(homeDir, 'daemon.sock');
+    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || process.env.USERPROFILE || '~', '.aiassistant');
+
+    if (socketPath) {
+      this.socketPath = socketPath;
+    } else if (process.platform === 'win32') {
+      this.socketPath = '\\\\.\\pipe\\aiassistant-daemon';
+    } else {
+      this.socketPath = path.join(homeDir, 'daemon.sock');
+    }
+
     this.authToken = this.loadOrCreateToken(homeDir);
     this.eventBus = eventBus;
   }
@@ -78,7 +86,7 @@ export class IPCServer {
       if (this.server) {
         this.server.close(() => {
           if (fs.existsSync(this.socketPath)) {
-            try { fs.unlinkSync(this.socketPath); } catch {}
+            try { fs.unlinkSync(this.socketPath); } catch { }
           }
           resolve();
         });

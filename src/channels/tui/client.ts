@@ -20,9 +20,13 @@ export class TUIClient {
   private activeRequest = false;
 
   constructor() {
-    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
-    this.socketPath = path.join(homeDir, 'daemon.sock');
-    
+    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || process.env.USERPROFILE || '~', '.aiassistant');
+    if (process.platform === 'win32') {
+      this.socketPath = '\\\\.\\pipe\\aiassistant-daemon';
+    } else {
+      this.socketPath = path.join(homeDir, 'daemon.sock');
+    }
+
     const tokenPath = path.join(homeDir, '.auth-token');
     this.authToken = fs.existsSync(tokenPath) ? fs.readFileSync(tokenPath, 'utf-8').trim() : '';
   }
@@ -92,7 +96,7 @@ export class TUIClient {
     }
 
     const id = `req-${++this.requestCounter}`;
-    
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
@@ -321,7 +325,7 @@ export class TUIClient {
       for (const handler of handlers) {
         handler(msg.data);
       }
-      
+
       // Also fire wildcard handlers
       const wildcardHandlers = this.eventHandlers.get('*') || [];
       for (const handler of wildcardHandlers) {

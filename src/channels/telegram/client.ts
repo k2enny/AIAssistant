@@ -31,8 +31,12 @@ export class TelegramClient {
 
   constructor(botToken: string) {
     this.bot = new Telegraf(botToken);
-    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
-    this.socketPath = path.join(homeDir, 'daemon.sock');
+    const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || process.env.USERPROFILE || '~', '.aiassistant');
+    if (process.platform === 'win32') {
+      this.socketPath = '\\\\.\\pipe\\aiassistant-daemon';
+    } else {
+      this.socketPath = path.join(homeDir, 'daemon.sock');
+    }
 
     const tokenPath = path.join(homeDir, '.auth-token');
     this.authToken = fs.existsSync(tokenPath) ? fs.readFileSync(tokenPath, 'utf-8').trim() : '';
@@ -219,11 +223,21 @@ export class TelegramClient {
     // Start long-polling in the background. Do NOT await anything here
     // that touches the network, as network delays (>30s) will cause the
     // daemon to think the process failed to start (timeout waiting for PID).
-    this.launchPromise = this.bot.launch();
+    this.running = true;
+    this.pollWithRetry();
+  }
+
+  private pollWithRetry(): void {
+    if (!this.running) return;
+
+    this.launchPromise = this.bot.launch({ dropPendingUpdates: true });
     this.launchPromise.catch((err) => {
       console.error(`Telegram polling error: ${err.message}`);
+      if (this.running) {
+        console.log('Retrying Telegram polling in 5 seconds...');
+        setTimeout(() => this.pollWithRetry(), 5000);
+      }
     });
-    this.running = true;
   }
 
   async stop(): Promise<void> {

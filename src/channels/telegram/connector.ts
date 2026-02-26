@@ -107,9 +107,18 @@ export class TelegramConnector implements ChannelConnector {
     // must not await it.  The .then/.catch handle the eventual outcome.
     this.connected = true;
     eventBus.emit(Events.CHANNEL_CONNECTED, { channel: 'telegram' });
-    this.bot.launch().catch((err: any) => {
-      this.connected = false;
-      eventBus.emit(Events.CHANNEL_DISCONNECTED, { channel: 'telegram' });
+    this.pollWithRetry();
+  }
+
+  private pollWithRetry(): void {
+    if (!this.connected) return;
+
+    this.bot.launch({ dropPendingUpdates: true }).catch((err: any) => {
+      console.error(`Telegram connector polling error: ${err.message}`);
+      if (this.connected) {
+        console.log('Retrying Telegram connector polling in 5 seconds...');
+        setTimeout(() => this.pollWithRetry(), 5000);
+      }
     });
   }
 
@@ -121,7 +130,7 @@ export class TelegramConnector implements ChannelConnector {
 
   async sendMessage(userId: string, content: string, metadata?: Record<string, any>): Promise<void> {
     const chatId = metadata?.chatId || userId;
-    
+
     // Split long messages (Telegram limit: 4096 chars)
     if (content.length > 4000) {
       const chunks = this.splitMessage(content, 4000);
