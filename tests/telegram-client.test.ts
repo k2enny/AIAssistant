@@ -722,12 +722,15 @@ describe('TelegramClient', () => {
     // Start processing but don't await yet — we need to inject a proactive event
     const processingPromise = textHandler(mockCtx);
 
-    // Simulate a proactive message arriving during the active request.
-    // The event handler should NOT skip it because proactive: true.
-    // Give a small delay for the request to be in-flight.
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Wait until the userId is in activeRequests (deterministic check)
+    for (let i = 0; i < 100; i++) {
+      if ((client as any).activeRequests.has('789')) break;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    expect((client as any).activeRequests.has('789')).toBe(true);
 
-    // Manually fire the event handler with a proactive message
+    // Manually fire the event handler with a proactive message.
+    // The event handler should NOT skip it because proactive: true.
     const eventHandlers = (client as any).eventHandlers.get('agent:response') || [];
     for (const handler of eventHandlers) {
       handler({

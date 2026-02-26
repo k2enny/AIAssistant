@@ -142,7 +142,7 @@ export class TUIClient {
     });
 
     this.onEvent('agent:error', (data) => {
-      if (this.activeRequest) return;
+      if (!data.proactive && this.activeRequest) return;
       console.log(`\n❌ Error: ${data.error}\n`);
       process.stdout.write('You: ');
     });
