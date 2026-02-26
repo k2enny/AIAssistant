@@ -61,6 +61,7 @@ export class SendMessageTool implements Tool {
         userId,
         channelId: channel,
         content: message,
+        proactive: true,
       });
 
       return {
