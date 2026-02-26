@@ -194,6 +194,19 @@ export class Daemon {
       // Forward events to IPC clients
       this.setupEventForwarding();
 
+      // Route MESSAGE_RECEIVED events to the orchestrator so that
+      // in-daemon channel connectors (e.g. TelegramConnector) can
+      // send messages through the same processing pipeline as IPC
+      // clients.
+      this.eventBus.on(Events.MESSAGE_RECEIVED, async (message: Message) => {
+        try {
+          this.connectedChannels.add(message.channelId);
+          await this.orchestrator.handleMessage(message);
+        } catch (err: any) {
+          this.logger.error('Error handling received message', { error: err.message });
+        }
+      });
+
     } catch (err: any) {
       this.logger.error('Failed to start daemon', { error: err.message, stack: err.stack });
       throw err;

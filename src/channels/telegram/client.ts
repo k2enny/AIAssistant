@@ -285,12 +285,11 @@ export class TelegramClient {
 
         if (result?.content) {
           await this.sendTelegramMessage(chatId, result.content);
-        } else if (result && !result.content) {
-          // The daemon processed the message but returned no content.
-          // This can happen when the orchestrator encounters an error
-          // (it emits agent:error and returns undefined).  The error
-          // event handler already notifies the user in that case, so
-          // we only send a fallback when no error event was broadcast.
+        } else {
+          // The daemon processed the message but returned no content
+          // (e.g. orchestrator error, empty LLM response, or unexpected
+          // IPC result shape).  Always send a fallback so the user is
+          // never left without a reply.
           await this.sendTelegramMessage(chatId, '⚠️ No response received. Please try again.');
         }
       } catch (err: any) {
@@ -308,9 +307,11 @@ export class TelegramClient {
   private setupEventHandlers(): void {
     this.onEvent('agent:response', (data) => {
       if (data.channelId === 'telegram' && data.userId) {
-        // Skip if the text handler is already sending a direct reply for
-        // this user — avoids duplicate messages.
-        if (this.activeRequests.has(data.userId)) return;
+        // Allow proactive messages (e.g. from the send_message tool or
+        // subagent broadcasts) even when the text handler is processing
+        // a request for the same user.  Only suppress the duplicate
+        // orchestrator response that mirrors the IPC result.
+        if (!data.proactive && this.activeRequests.has(data.userId)) return;
 
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
@@ -343,8 +344,8 @@ export class TelegramClient {
       } else {
         await this.bot.telegram.sendMessage(chatId, content);
       }
-    } catch {
-      // Ignore send failures
+    } catch (err: any) {
+      console.error(`Failed to send Telegram message to chat ${chatId}: ${err.message}`);
     }
   }
 

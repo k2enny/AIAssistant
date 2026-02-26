@@ -17,6 +17,7 @@ export class TUIClient {
   private rl: readline.Interface | null = null;
   private buffer = '';
   private requestCounter = 0;
+  private activeRequest = false;
 
   constructor() {
     const homeDir = process.env.AIASSISTANT_HOME || path.join(process.env.HOME || '~', '.aiassistant');
@@ -128,13 +129,20 @@ export class TUIClient {
     console.log('  /help      - Show this help');
     console.log('─'.repeat(50));
 
-    // Listen for agent responses
+    // Listen for agent responses.
+    // Proactive messages (from the send_message tool, subagents, etc.)
+    // are displayed here.  Responses to the user's own messages are
+    // displayed via the IPC result in handleInput, so we skip
+    // non-proactive events while a request is in flight to avoid
+    // duplicate output.
     this.onEvent('agent:response', (data) => {
+      if (!data.proactive && this.activeRequest) return;
       console.log(`\n🤖 Assistant: ${data.content}\n`);
       process.stdout.write('You: ');
     });
 
     this.onEvent('agent:error', (data) => {
+      if (!data.proactive && this.activeRequest) return;
       console.log(`\n❌ Error: ${data.error}\n`);
       process.stdout.write('You: ');
     });
@@ -276,9 +284,20 @@ export class TUIClient {
         break;
       }
       default: {
-        // Send message to daemon
+        // Send message to daemon and use the IPC result to display the
+        // reply.  Previously the response was discarded (fire-and-forget)
+        // and the TUI relied solely on the agent:response broadcast
+        // event, which could be lost.
         console.log('\n⏳ Processing...');
-        await this.request('send_message', { content: input, userId: 'local' });
+        this.activeRequest = true;
+        try {
+          const result = await this.request('send_message', { content: input, userId: 'local' });
+          if (result?.content) {
+            console.log(`\n🤖 Assistant: ${result.content}\n`);
+          }
+        } finally {
+          this.activeRequest = false;
+        }
       }
     }
   }
