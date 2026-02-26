@@ -26,6 +26,8 @@ export class TelegramClient {
   private running = false;
   private authTimeout: NodeJS.Timeout | null = null;
   private activeRequests: Set<string> = new Set();
+  private reconnecting = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(botToken: string) {
     this.bot = new Telegraf(botToken);
@@ -86,11 +88,22 @@ export class TelegramClient {
         if (!this.authenticated) {
           if (this.authTimeout) clearTimeout(this.authTimeout);
           reject(err);
+        } else {
+          console.error(`IPC socket error: ${err.message}`);
         }
       });
 
       this.socket.on('close', () => {
         this.authenticated = false;
+        // Reject any pending requests so callers don't wait forever
+        for (const [id, { reject: rej }] of this.pendingRequests) {
+          rej(new Error('IPC connection lost'));
+        }
+        this.pendingRequests.clear();
+        // Attempt to reconnect if the bot is still running
+        if (this.running) {
+          this.scheduleReconnect();
+        }
       });
     });
   }
@@ -100,11 +113,39 @@ export class TelegramClient {
       clearTimeout(this.authTimeout);
       this.authTimeout = null;
     }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
     }
     this.authenticated = false;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnecting || !this.running) return;
+    this.reconnecting = true;
+    const attempt = (delay: number, retries: number) => {
+      this.reconnectTimer = setTimeout(async () => {
+        if (!this.running) { this.reconnecting = false; return; }
+        try {
+          await this.connect();
+          this.reconnecting = false;
+          console.log('Reconnected to daemon');
+        } catch {
+          if (retries > 0 && this.running) {
+            attempt(Math.min(delay * 2, 30000), retries - 1);
+          } else {
+            this.reconnecting = false;
+            console.error('Failed to reconnect to daemon after multiple attempts');
+          }
+        }
+      }, delay);
+      this.reconnectTimer.unref();
+    };
+    attempt(1000, 10);
   }
 
   async request(method: string, params?: any): Promise<any> {
@@ -185,6 +226,11 @@ export class TelegramClient {
 
   async stop(): Promise<void> {
     this.running = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnecting = false;
     try { this.bot.stop('Telegram client shutdown'); } catch { /* already stopped */ }
     await this.disconnect();
   }
@@ -315,7 +361,9 @@ export class TelegramClient {
 
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
-          this.sendTelegramMessage(chatId, data.content);
+          this.sendTelegramMessage(chatId, data.content).catch((err) => {
+            console.error(`Failed to send Telegram message to chat ${chatId}: ${err.message}`);
+          });
         }
       }
     });
@@ -328,24 +376,22 @@ export class TelegramClient {
 
         const chatId = this.chatMap.get(data.userId);
         if (chatId) {
-          this.sendTelegramMessage(chatId, `❌ Error: ${data.error}`);
+          this.sendTelegramMessage(chatId, `❌ Error: ${data.error}`).catch((err) => {
+            console.error(`Failed to send Telegram error to chat ${chatId}: ${err.message}`);
+          });
         }
       }
     });
   }
 
   private async sendTelegramMessage(chatId: number, content: string): Promise<void> {
-    try {
-      if (content.length > 4000) {
-        const chunks = this.splitMessage(content, 4000);
-        for (const chunk of chunks) {
-          await this.bot.telegram.sendMessage(chatId, chunk);
-        }
-      } else {
-        await this.bot.telegram.sendMessage(chatId, content);
+    if (content.length > 4000) {
+      const chunks = this.splitMessage(content, 4000);
+      for (const chunk of chunks) {
+        await this.bot.telegram.sendMessage(chatId, chunk);
       }
-    } catch (err: any) {
-      console.error(`Failed to send Telegram message to chat ${chatId}: ${err.message}`);
+    } else {
+      await this.bot.telegram.sendMessage(chatId, content);
     }
   }
 
