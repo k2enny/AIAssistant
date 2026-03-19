@@ -528,7 +528,7 @@ describe('TelegramClient', () => {
     const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
 
     // Use a deferred promise so we can control exactly when launch() resolves
-    let resolveLaunch!: () => void;
+    let resolveLaunch: () => void = () => {};
     const controlledLaunch = new Promise<void>((resolve) => { resolveLaunch = resolve; });
     botInstance.launch.mockReturnValueOnce(controlledLaunch);
 
