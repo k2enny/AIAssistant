@@ -85,7 +85,7 @@ export class TelegramConnector implements ChannelConnector {
             await this.sendMessage(data.userId, data.content, { chatId });
           }
         } catch (err: any) {
-          // Log error but don't crash
+          console.error(`Failed to send Telegram response to user ${data.userId}: ${err.message}`);
         }
       }
     });
@@ -97,8 +97,8 @@ export class TelegramConnector implements ChannelConnector {
           if (chatId !== undefined) {
             await this.sendMessage(data.userId, `❌ Error: ${data.error}`, { chatId });
           }
-        } catch {
-          // Ignore
+        } catch (err: any) {
+          console.error(`Failed to send Telegram error to user ${data.userId}: ${err.message}`);
         }
       }
     });
@@ -113,14 +113,24 @@ export class TelegramConnector implements ChannelConnector {
   private pollWithRetry(): void {
     if (!this.connected) return;
 
-    this.bot.launch({ dropPendingUpdates: true }).catch((err: any) => {
-      console.error(`Telegram connector polling error: ${err.message}`);
-      if (this.connected) {
-        try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
-        console.log('Retrying Telegram connector polling in 5 seconds...');
-        setTimeout(() => this.pollWithRetry(), 5000);
-      }
-    });
+    this.bot.launch({ dropPendingUpdates: true })
+      .then(() => {
+        // launch() resolved — polling stopped (e.g. internal Telegraf
+        // shutdown or an unhandled edge-case).  Restart if the connector
+        // is still supposed to be running so we don't silently go deaf.
+        if (this.connected) {
+          console.log('Telegram connector polling stopped unexpectedly, restarting in 1s...');
+          setTimeout(() => this.pollWithRetry(), 1000);
+        }
+      })
+      .catch((err: any) => {
+        console.error(`Telegram connector polling error: ${err.message}`);
+        if (this.connected) {
+          try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
+          console.log('Retrying Telegram connector polling in 5 seconds...');
+          setTimeout(() => this.pollWithRetry(), 5000);
+        }
+      });
   }
 
   async shutdown(): Promise<void> {

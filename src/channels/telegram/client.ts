@@ -231,14 +231,24 @@ export class TelegramClient {
     if (!this.running) return;
 
     this.launchPromise = this.bot.launch({ dropPendingUpdates: true });
-    this.launchPromise.catch((err) => {
-      console.error(`Telegram polling error: ${err.message}`);
-      if (this.running) {
-        try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
-        console.log('Retrying Telegram polling in 5 seconds...');
-        setTimeout(() => this.pollWithRetry(), 5000);
-      }
-    });
+    this.launchPromise
+      .then(() => {
+        // launch() resolved — polling stopped (e.g. internal Telegraf
+        // shutdown or an unhandled edge-case).  Restart if the client is
+        // still supposed to be running so we don't silently go deaf.
+        if (this.running) {
+          console.log('Telegram polling stopped unexpectedly, restarting in 1s...');
+          setTimeout(() => this.pollWithRetry(), 1000);
+        }
+      })
+      .catch((err) => {
+        console.error(`Telegram polling error: ${err.message}`);
+        if (this.running) {
+          try { this.bot.stop('Retrying connection'); } catch { /* ignore */ }
+          console.log('Retrying Telegram polling in 5 seconds...');
+          setTimeout(() => this.pollWithRetry(), 5000);
+        }
+      });
   }
 
   async stop(): Promise<void> {
