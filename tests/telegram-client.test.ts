@@ -520,6 +520,36 @@ describe('TelegramClient', () => {
     await client.stop();
   });
 
+  test('should restart polling when launch() resolves unexpectedly while running', async () => {
+    const { TelegramClient } = require('../src/channels/telegram/client');
+    const client = new TelegramClient('fake-token');
+
+    const { Telegraf } = require('telegraf');
+    const botInstance = Telegraf.mock.results[Telegraf.mock.results.length - 1].value;
+
+    // Use a deferred promise so we can control exactly when launch() resolves
+    let resolveLaunch!: () => void;
+    const controlledLaunch = new Promise<void>((resolve) => { resolveLaunch = resolve; });
+    botInstance.launch.mockReturnValueOnce(controlledLaunch);
+
+    await client.start();
+    expect(client.isRunning()).toBe(true);
+
+    // Record how many times launch was called before we trigger the resolve
+    const callsBefore = botInstance.launch.mock.calls.length;
+
+    // Simulate polling stopping unexpectedly
+    resolveLaunch();
+
+    // Wait for the .then() handler + 1s setTimeout to trigger a new pollWithRetry
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    // launch() should have been called again because the bot is still running
+    expect(botInstance.launch.mock.calls.length).toBeGreaterThan(callsBefore);
+
+    await client.stop();
+  });
+
   test('/start command handler should not throw even if ctx.reply fails', async () => {
     const { TelegramClient } = require('../src/channels/telegram/client');
     const client = new TelegramClient('fake-token');
